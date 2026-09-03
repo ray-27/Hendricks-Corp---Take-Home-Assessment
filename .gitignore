@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+models/*.onnx
+models/*.pt
+*.pt
+outputs/
+.venv/
+
+info.pdf

@@ -1,0 +1,223 @@
+# Pipelines
+
+Modular, independently-runnable pipelines. Each task in the brief gets its
+own pipeline (own detector/tracker choices, own outputs) rather than one
+monolithic script that tries to do everything at once. Pipelines don't call
+into each other and don't share Python state — they hand data off through
+files, so any of them can be run, re-run, or swapped out on its own. They
+are only ever combined afterwards, by joining their output CSVs (e.g. on
+`track_id` / timestamp) or by watching their annotated videos side by side.
+
+```
+pipelines/
+  configs/
+    boundary_zones.json      <- written by boundary_gui.py, read by every pipeline
+  boundary/
+    boundary_store.py        <- Boundary dataclass + load/save (the file contract)
+    boundary_gui.py          <- GUI to click the zones, run this first
+  interest/
+    tracker.py                <- plain IoU tracker (no ReID — see below)
+    snn_motion.py             <- per-person spiking (LIF) motion sensor
+    scoring.py                <- the interest criteria + weighted score
+    interest_pipeline.py      <- runnable: YOLO-pose + SNN motion -> interest CSV/video
+  outputs/
+    interest/                 <- this pipeline's own outputs, namespaced
+```
+
+## 1. Mark the boundary (run once per video)
+
+```
+python3 pipelines/boundary/boundary_gui.py --video raw_videos/entrance.mp4
+```
+
+Click:
+- **outside** — the public walkway / walking area in front of the shop.
+  Interest is only ever judged for a person while they are in this zone,
+  because the brief's "passers-by" are people out on the walkway, not
+  people already inside.
+- **inside** — the interior of the shop. Staying inside this polygon for
+  `entered_dwell_s` is what marks a person as "entered" rather than merely
+  "interested".
+- **entrance line** (optional but recommended) — 2 points across the
+  doorway/threshold. This becomes the concrete point every pipeline treats
+  as "the storefront" when computing look-direction and approach distance.
+  If skipped, pipelines fall back to the centroid of `inside`.
+
+This writes `pipelines/configs/boundary_zones.json`, keyed by video
+filename, e.g.:
+
+```json
+{
+  "entrance.mp4": {
+    "outside": [[x, y], ...],
+    "inside": [[x, y], ...],
+    "entrance_line": [[x1, y1], [x2, y2]]
+  }
+}
+```
+
+Every other pipeline that needs geometry (starting with `interest`) reads
+this file. Re-running the GUI and re-saving simply overwrites the entry for
+that video; nothing downstream needs to change.
+
+## 2. Interest pipeline (SNN motion + YOLO posture, no ReID)
+
+```
+python3 pipelines/interest/interest_pipeline.py --video raw_videos/entrance.mp4 --preview
+```
+
+Per the task instructions, this pipeline is scoped to exactly two model
+families: **movement** (a small spiking neural network) and **YOLO pose**
+(posture/orientation). It has no dependency on the ReID embedder or gallery
+used elsewhere in this repo — a plain IoU tracker is enough for the
+short-lived tracks on the walkway, so this pipeline can be run completely
+on its own, on any clip, once its boundary is drawn.
+
+Pipeline stages:
+
+```
+frame -> YOLOv8n-pose (per-person box + 17 keypoints)
+      -> IoUTracker    (position/box history per track_id, no appearance model)
+      -> SNNMotionTracker (per-track LIF neuron pool over the person's crop:
+                            DVS-style ON/OFF events -> leaky integrate-and-fire
+                            -> motion_energy, motion_trend)
+      -> scoring.score_track (4 cues -> weighted score -> EMA + sustain)
+      -> scoring.update_track_state (interested / entered decision)
+```
+
+### Why an SNN for the movement/speed cue
+
+`snn_motion.py` reuses the same DVS-simulation + LIF-neuron idea already
+prototyped at the project root in `video_snn.py`, but scopes it from "one
+neuron per pixel of the whole frame" down to a small (10x10) neuron grid
+over *one tracked person's crop*, so every track gets its own independent
+membrane state:
+
+- The leaky membrane (`V[t] = V[t-1]*k + s(t)`, fire+reset at threshold)
+  makes it a short-term integrator of gait/limb motion: a stride's stance
+  phase doesn't immediately read as "stopped", but a sustained drop in
+  motion energy does — which is the actual "slowing down" signal, read from
+  body motion rather than only from bounding-box centroid displacement.
+- It naturally ignores sub-threshold jitter from a slightly noisy
+  detection box, the same way a real DVS pixel ignores sub-threshold
+  brightness noise.
+- It's cheap: one frame-difference + one threshold compare per person per
+  frame.
+
+The plain foot-point displacement (from pose keypoints) is still used for
+direction (which way is this person walking / are they closing on the
+entrance) since that needs an actual vector, not just an energy scalar. The
+SNN's `motion_trend` and the foot-point speed are blended for the
+"slowing down" cue (see `scoring.py` docstring for the exact reasoning and
+weights).
+
+### Interest criteria (see `scoring.py` for the full reasoning)
+
+Four independent, observable cues, combined with fixed weights, each capped
+to `[0, 1]`:
+
+| cue        | source                              | brief language it captures                  |
+|------------|-------------------------------------|----------------------------------------------|
+| `orient`   | YOLO-pose torso + head vector vs. entrance | "looking toward the storefront"        |
+| `turn`     | change in orient-angle over ~0.6s   | "turning their head or body toward it"       |
+| `slow`     | SNN motion-energy trend + foot speed| "slowing down"                                |
+| `approach` | closing distance to the entrance    | "approaching the entrance"                    |
+
+A track is marked **interested** only once the combined, EMA-smoothed score
+clears a threshold *and holds* for `sustain_s` (0.8s) — deliberately not
+decided by any single frame, and deliberately not decided by "stopped"
+alone (stopping isn't even one of the weighted cues; a stopped-but-facing-
+away person scores low, a slowing-and-turning-toward person scores high
+even if they never fully stop).
+
+### All thresholds/parameters, in one place (`scoring.py::InterestParams`)
+
+There is no single "shoulder tilt" threshold — orientation comes from the
+torso-perpendicular + head-yaw *attention vector* in `src/analytics/pose.py`
+(`PoseDet.facing_vector()` / `attention_vector()`), gated by a keypoint
+confidence cutoff, and is only turned into a cue by comparing its angle to
+the entrance direction against `attend_deg` below. There's one place that
+looks at raw speed magnitude (`walk_bh`/`slow_bh`), one for the SNN's
+motion-decay signal, and one for closing speed. All distances/speeds are in
+**body-heights/second** (bbox height as the unit), not pixels or m/s, since
+this pipeline has no floor-plane calibration.
+
+| parameter | value | meaning |
+|---|---|---|
+| `KP_CONF` (`pose.py`) | 0.30 | below this a keypoint (shoulder/hip/eye/etc.) is treated as missing, not wrong |
+| `attend_deg` | 55° | attention-vector-to-entrance angle cone that counts as "looking at the shop"; cue saturates at 0° |
+| `turn_deg` | 12° | angle swing *toward* the shop over `turn_window_s` that saturates the "turning toward it" cue |
+| `turn_window_s` | 0.6s | window the turning cue compares "now" against |
+| `walk_bh` | 1.40 bh/s | normal/unremarkable walking pace — at or above this the speed-based half of `slow` is 0 |
+| `slow_bh` | 0.45 bh/s | at/below this the speed-based half of `slow` is fully saturated |
+| `motion_trend_ref` | 0.05 | SNN motion-energy drop that fully saturates the trend-based half of `slow` |
+| `speed_window_s` | 0.5s | window for computing foot-point speed / approach |
+| `approach_ref_bh` | 0.35 bh/s | closing speed toward the entrance that saturates the `approach` cue |
+| `w_orient / w_turn / w_slow / w_approach` | 0.35 / 0.15 / 0.25 / 0.25 | cue weights (sum to 1.0) |
+| `score_threshold` | 0.55 | EMA score must clear this |
+| `sustain_s` | 0.8s | ...and hold above threshold for this long, continuously |
+| `ema` | 0.60 | smoothing factor on the interest score (higher = smoother/slower to react) |
+| `entered_dwell_s` | 0.8s | continuous time inside the shop polygon before a track is marked "entered" |
+| `min_hits` | 5 | tracks with fewer detections than this are treated as flicker, not counted |
+
+Tune these in `InterestParams` (or pass your own instance into
+`interest_pipeline.py`) the same way the constants in the original
+`src/analytics/events.py` were tuned against labelled clips.
+
+### Fixes: outside-only tracking, and not re-flagging a leaving customer
+
+Two issues from the first pass are fixed:
+
+1. **People already inside the shop showed up as tracked boxes.** YOLO-pose
+   still runs on the full frame (it has to, so a person can be followed as
+   they cross into the shop), but `IoUTracker` now takes a
+   `spawn_predicate`: a **brand-new** track id is only allowed to start on a
+   detection inside the `outside` polygon. Someone who only ever appears
+   inside (staff, existing shoppers) never gets tracked or drawn by this
+   pipeline at all. Boxes are also only *drawn* for a track while it is
+   currently in the outside zone — once someone is inside, their box
+   disappears from the preview/annotated video (they're still tracked
+   internally, just not rendered, since this pipeline's job is the walkway).
+2. **A person leaving the shop must not be counted as newly interested.**
+   Because a track that starts outside keeps its id as it walks inside
+   (`spawn_predicate` doesn't touch already-existing tracks — they keep
+   matching frame-to-frame via IoU, and `max_missed` was raised to 45 frames
+   so the id survives the walk to the doorway and back into camera view),
+   `scoring.update_track_state` now only evaluates/updates the interest
+   score `while not track.entered`. Once a track is marked `entered=True`
+   (dwelled inside for `entered_dwell_s`), its interest score is frozen —
+   if they walk back out and slow down/look around near the doorway on
+   their way out, that no longer flips them into "interested". In the
+   annotated video such a track is labelled `LEFT STORE` (not `INTERESTED`)
+   when it reappears outside.
+
+Caveat: this still relies on the tracker never losing the identity while
+the person is inside (there's no ReID fallback in this pipeline by design —
+see the note above). If someone is out of camera view or occluded inside
+for longer than `max_missed` frames, they'll reappear as a new, un-entered
+track and could be re-scored. Raise `max_missed` further, or add a short
+entrance-line-proximity re-linking heuristic, if that turns out to matter
+for your footage.
+
+### Running on the best available accelerator
+
+`src/analytics/pose.py::PoseDetector` now auto-selects
+CUDA → MPS (Apple Silicon) → CPU via `best_device()`, and prints which one
+it picked (e.g. `PoseDetector device: mps`). Pass `device="cpu"` explicitly
+to `PoseDetector()` to override.
+
+### Outputs
+
+Written to `pipelines/outputs/interest/`:
+- `interest_summary.csv` — Total Interested / Interested Entered / Interested Passed By
+- `interest_track_log.csv` — per-track_id interest/entered decisions
+- `interest_annotated.mp4` — boxes, interest bar, motion energy/trend, HUD
+- `interest_cues.csv` (with `--dump-cues`) — per-frame cue breakdown for tuning
+
+## Adding more pipelines
+
+Each new pipeline (e.g. dwell-time, staff-customer interaction, ReID-based
+re-entry) should follow the same shape: its own subfolder under
+`pipelines/`, reading `pipelines/configs/boundary_zones.json` if it needs
+geometry, writing to its own `pipelines/outputs/<name>/`, and staying free
+of imports from sibling pipelines. Combine results after the fact.

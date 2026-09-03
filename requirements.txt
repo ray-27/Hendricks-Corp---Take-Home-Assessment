@@ -1,0 +1,10 @@
+numpy>=1.26
+opencv-python>=4.8
+onnxruntime>=1.17
+onnx>=1.15
+pillow>=10.0
+ultralytics>=8.2
+customtkinter>=5.2
+torch>=2.0
+torchvision>=0.15
+onnx2torch>=1.5
