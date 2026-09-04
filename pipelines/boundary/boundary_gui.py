@@ -1,23 +1,9 @@
 #!/usr/bin/env python3
 """
-Boundary-marking GUI: click the OUTSIDE (walking area) and INSIDE (shop)
-zones once per camera, and save them to file.
+Store boundary GUI (outside / inside / entrance).
 
-This is deliberately its own tiny pipeline with a single job: produce
-`pipelines/configs/boundary_zones.json`. It has no dependency on YOLO, SNNs,
-ReID, or anything else -- every other pipeline reads the file this GUI
-writes, but none of them import this module or vice versa.
-
-Steps:
-  1. outside        click the walkway/public area in front of the shop
-  2. inside         click the interior of the store
-  3. entrance line  click 2 points across the doorway (optional but
-                     recommended -- it gives every other pipeline a concrete
-                     "the storefront" target/threshold to reason about)
-
-Usage:
-    python3 pipelines/boundary/boundary_gui.py
-    python3 pipelines/boundary/boundary_gui.py --video raw_videos/interior.mp4
+This GUI writes only `pipelines/configs/store_boundary_zones.json`.
+Shelves are handled separately by `shelf_gui.py`.
 """
 
 from __future__ import annotations
@@ -162,9 +148,7 @@ class BoundaryApp(ctk.CTk):
         ok, why = self.boundary.ready()
         save_boundary(self.video.name, self.boundary)
         extra = "" if ok else f"  (incomplete: {why})"
-        self.status.configure(
-            text=f"Saved to pipelines/configs/boundary_zones.json{extra}"
-        )
+        self.status.configure(text=f"Saved to pipelines/configs/store_boundary_zones.json{extra}")
 
     # ------------------------------------------------------------------ drawing
 
@@ -185,7 +169,6 @@ class BoundaryApp(ctk.CTk):
             cv2.putText(vis, "ENTRANCE", a, cv2.FONT_HERSHEY_SIMPLEX, 0.55, (60, 120, 255), 2)
         for p in b.entrance_line:
             cv2.circle(vis, tuple(map(int, p)), 5, (60, 120, 255), -1)
-
         self._status_text()
         self._show(vis)
 
@@ -217,7 +200,7 @@ class BoundaryApp(ctk.CTk):
 
 
 def Boundary_config_hint() -> str:
-    return "pipelines/configs/boundary_zones.json"
+    return "pipelines/configs/store_boundary_zones.json"
 
 
 def main() -> None:

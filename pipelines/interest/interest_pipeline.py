@@ -12,7 +12,7 @@ Interest pipeline: store-interest detection for the walking area.
 This pipeline is fully independent of the ReID pipeline and of the original
 `run_entrance_analytics.py` at the project root: it only needs
   - the boundary file produced by `pipelines/boundary/boundary_gui.py`
-    (`pipelines/configs/boundary_zones.json`)
+    (`pipelines/configs/store_boundary_zones.json`)
   - the YOLOv8n-pose weights already in `models/`
 It does not read or write any ReID state, and can be run on its own, on any
 video, as long as that video's boundary has been drawn once.

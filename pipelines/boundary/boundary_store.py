@@ -1,33 +1,6 @@
-"""Boundary/zone data model shared across the independent pipelines.
+"""Store boundary contract used by pipelines that need outside/inside zones.
 
-Design intent
--------------
-Each pipeline under `pipelines/` (starting with `interest`) is meant to run
-on its own -- its own detector, its own tracker, its own output files -- and
-be combined with the others only afterwards (by joining outputs on
-`track_id` / timestamp, or simply by looking at them side by side). Because
-the pipelines don't share a process or in-memory state, the boundary the
-user draws has to be handed over as a *file*, not a Python object passed
-between modules.
-
-This module is that file-based contract: `boundary_gui.py` writes it,
-every downstream pipeline reads it. The file lives at
-`pipelines/configs/boundary_zones.json`, keyed by video filename so more
-than one camera/clip can be configured at once (mirrors the convention
-already used by `configs/entrance_zones.json` at the project root).
-
-Two areas are recorded, in plain "outside/inside the shop" language:
-
-  outside         the walking area in front of the shop, i.e. the public
-                  walkway a passer-by uses. This is the zone in which
-                  "interest" is judged -- the brief's passers-by are people
-                  out here, not people already inside.
-  inside          the interior of the store. Crossing into this polygon and
-                  staying is what later pipelines use to decide "entered".
-  entrance_line   optional 2 points across the doorway/threshold. When
-                  present it is the point people are considered to be
-                  looking/walking *at*; when absent, pipelines fall back to
-                  the centroid of `inside`.
+Saved to `pipelines/configs/store_boundary_zones.json`.
 """
 
 from __future__ import annotations
@@ -39,13 +12,24 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "boundary_zones.json"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "store_boundary_zones.json"
+OLD_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "boundary_zones.json"
 
 
 def _as_poly(pts) -> np.ndarray | None:
     if not pts or len(pts) < 3:
         return None
     return np.array(pts, np.float32)
+
+
+def _closest_on_segment(pt: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    ab = b - a
+    denom = float(ab @ ab)
+    if denom < 1e-6:
+        return a
+    t = float((pt - a) @ ab) / denom
+    t = min(max(t, 0.0), 1.0)
+    return a + t * ab
 
 
 @dataclass
@@ -73,13 +57,7 @@ class Boundary:
         if len(self.entrance_line) == 2:
             a = np.array(self.entrance_line[0], np.float32)
             b = np.array(self.entrance_line[1], np.float32)
-            ab = b - a
-            denom = float(ab @ ab)
-            if denom > 1e-6:
-                t = float((np.array(pt, np.float32) - a) @ ab) / denom
-                t = min(max(t, 0.0), 1.0)
-                return a + t * ab
-            return a
+            return _closest_on_segment(np.asarray(pt, np.float32), a, b)
         poly = _as_poly(self.inside)
         if poly is not None:
             return poly.mean(axis=0)
@@ -107,9 +85,10 @@ class Boundary:
 
 
 def load_boundary(video_name: str) -> Boundary:
-    if not CONFIG_PATH.exists():
+    path = CONFIG_PATH if CONFIG_PATH.exists() else OLD_CONFIG_PATH
+    if not path.exists():
         return Boundary()
-    data = json.loads(CONFIG_PATH.read_text())
+    data = json.loads(path.read_text())
     if video_name not in data:
         return Boundary()
     return Boundary.from_dict(data[video_name])
