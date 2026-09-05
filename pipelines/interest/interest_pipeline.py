@@ -2,7 +2,7 @@
 """
 Interest pipeline: store-interest detection for the walking area.
 
-    frame -> YOLOv8n-pose (posture: orientation, head turn)
+    frame -> YOLO11x-pose (posture: orientation, head turn)
           -> IoU tracker (position over time, no ReID)
           -> per-person spiking retina / SNN (gait motion energy -> speed &
              slowdown, see snn_motion.py)
@@ -13,7 +13,7 @@ This pipeline is fully independent of the ReID pipeline and of the original
 `run_entrance_analytics.py` at the project root: it only needs
   - the boundary file produced by `pipelines/boundary/boundary_gui.py`
     (`pipelines/configs/store_boundary_zones.json`)
-  - the YOLOv8n-pose weights already in `models/`
+  - the YOLO-pose weights (`yolo11x-pose.pt` by default; Ultralytics downloads on first run)
 It does not read or write any ReID state, and can be run on its own, on any
 video, as long as that video's boundary has been drawn once.
 
@@ -217,6 +217,8 @@ def main() -> None:
     ap.add_argument("--preview", action="store_true", help="show a window while running")
     ap.add_argument("--no-video", action="store_true", help="CSV only, skip encoding")
     ap.add_argument("--dump-cues", action="store_true", help="per-frame cue CSV for tuning")
+    ap.add_argument("--pose-weights", type=str, default=None, help="YOLO-pose checkpoint (default: yolo11x-pose.pt)")
+    ap.add_argument("--pose-imgsz", type=int, default=1280)
     ap.add_argument("--snn-grid", type=int, nargs=2, default=(14, 14), metavar=("H", "W"))
     ap.add_argument("--snn-diff-thresh", type=float, default=10.0)
     ap.add_argument("--snn-vth", type=float, default=0.55)
@@ -242,7 +244,7 @@ def main() -> None:
     stride = max(1, args.stride)
     fps_eff = src_fps / stride
 
-    pose = PoseDetector()
+    pose = PoseDetector(weights=args.pose_weights, imgsz=int(args.pose_imgsz))
     # New tracks may only spawn on a detection out on the walkway. YOLO still
     # sees everyone in frame (staff, shoppers already inside), but this
     # pipeline never starts tracking someone who only ever appears inside the

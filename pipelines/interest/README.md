@@ -4,7 +4,7 @@ Outside-walkway store-interest pipeline using only YOLO pose + SNN motion.
 
 ## What It Does
 
-- Detects people with `YOLOv8n-pose` (`src/analytics/pose.py`).
+- Detects people with YOLO11x-pose (`src/analytics/pose.py`; same COCO-17 layout as YOLOv8-pose).
 - Tracks them with IoU tracking (`tracker.py`), no ReID dependency.
 - Computes per-person motion cues with a small LIF SNN (`snn_motion.py`).
 - Scores "interest" from 4 cues (`scoring.py`):

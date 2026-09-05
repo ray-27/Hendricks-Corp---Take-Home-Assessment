@@ -55,11 +55,10 @@ Same three-knob approach as `shelf_interest`, tuned via CLI:
 Uses the same `PoseDetector` (Ultralytics YOLO-pose) as the rest of this
 repo, swappable via `--pose-weights`:
 
-- **Default / recommended now**: `yolov8n-pose.pt` (already used
-  elsewhere in the repo) for speed, or **`yolov8x-pose.pt` /
-  `yolo11x-pose.pt`** for materially better keypoint accuracy at oblique
-  CCTV angles — same Ultralytics API, just point `--pose-weights` at the
-  larger checkpoint and raise `--pose-imgsz` if the camera is wide-angle.
+- **Default / recommended now**: `yolo11x-pose.pt` (shared `PoseDetector` default)
+  for keypoint accuracy at oblique CCTV angles. Nano (`yolov8n-pose.pt`) is
+  still a drop-in if you need speed: `--pose-weights yolov8n-pose.pt`. Same
+  Ultralytics API; raise `--pose-imgsz` if the camera is wide-angle.
 - **If keypoint quality is still the bottleneck**: **RTMPose** (OpenMMLab
   MMPose) is the strongest option for occluded/oblique top-down views, but
   it's a different framework (two-stage: a person detector + a separate

@@ -1,4 +1,7 @@
-"""YOLOv8n-pose person detector plus the keypoint geometry the events need.
+"""YOLO-pose person detector plus the keypoint geometry the events need.
+
+Default weights are YOLO11x-pose (same COCO-17 keypoint layout as YOLOv8-pose).
+Nano (`yolov8n-pose.pt`) is still valid via `--pose-weights` if you need speed.
 
 Why pose instead of a gaze/head-pose model: in entrance.mp4 bodies are ~100-210
 px tall but heads are only ~20 px ear-to-ear. Gaze networks (L2CS-Net, 6DRepNet)
@@ -24,6 +27,16 @@ L_HIP, R_HIP = 11, 12
 L_ANK, R_ANK = 15, 16
 
 KP_CONF = 0.30  # below this a keypoint is treated as missing rather than wrong
+
+# Shared default for every pipeline. Local file wins if present; otherwise
+# Ultralytics downloads the checkpoint on first use.
+_MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
+DEFAULT_POSE_WEIGHTS = "yolo11x-pose.pt"
+
+
+def default_pose_weights() -> str:
+    local = _MODELS_DIR / DEFAULT_POSE_WEIGHTS
+    return str(local) if local.exists() else DEFAULT_POSE_WEIGHTS
 
 
 def best_device() -> str:
@@ -190,7 +203,7 @@ class PoseDetector:
         device: str | None = None,
     ) -> None:
         if weights is None:
-            weights = str(Path(__file__).resolve().parents[2] / "models" / "yolov8n-pose.pt")
+            weights = default_pose_weights()
         self.model = YOLO(weights)
         self.device = device or best_device()
         try:
@@ -198,6 +211,7 @@ class PoseDetector:
         except Exception as exc:  # MPS/CUDA can be present but fail to init for this op set
             print(f"{self.device} unavailable for pose model ({exc.__class__.__name__}); falling back to CPU.")
             self.device = "cpu"
+        print(f"PoseDetector weights: {weights}")
         print(f"PoseDetector device: {self.device}")
         self.conf = conf
         self.min_h = min_h

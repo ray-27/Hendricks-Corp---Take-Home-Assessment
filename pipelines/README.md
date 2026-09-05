@@ -10,10 +10,12 @@ are only ever combined afterwards, by joining their output CSVs (e.g. on
 
 ```
 pipelines/
-  configs/
+    configs/
     store_boundary_zones.json <- written by boundary_gui.py (store outside/inside/entrance)
     shelf_zones.json          <- written by shelf_gui.py (named shelf polygons/front-lines)
     shelf_faces.json          <- written by shelf_face_gui.py (shelf edge + outward normal + customer zone)
+    staff_marks.json          <- written by staff_gui.py: a small ReID embedding gallery for
+                                  the default (non-VLM) staff role classifier -- see section 5
   boundary/
     boundary_store.py         <- store boundary dataclass + load/save
     boundary_gui.py           <- GUI for outside/inside/entrance
@@ -34,10 +36,19 @@ pipelines/
     shelf_face_store.py       <- shelf-face dataclass (edge/normal/zone) + load/save
     shelf_face_gui.py         <- GUI for edge -> normal -> customer zone, per shelf face
     shelf_vector_pipeline.py  <- runnable: per-shelf-face interest CSV/video
+  staff_interaction/
+    tracker.py                <- own IoU+ReID tracker (self-contained, not shared with other pipelines)
+    scoring.py                <- role (reid default / vlm opt-in) + interaction (rule default / vlm opt-in)
+                                  + shared open/gap/cooldown session state machine
+    staff_store.py             <- ReID gallery dataclass + load/save (pipelines/configs/staff_marks.json)
+    staff_gui.py               <- GUI: click each staff member once to enrol their ReID embedding
+    vlm_judge.py               <- Qwen2-VL-2B-Instruct wrapper, only loaded if --role-method/--interaction-method vlm
+    staff_interaction_pipeline.py <- runnable: per-staff interaction sessions CSV/video
   outputs/
     interest/                 <- this pipeline's own outputs, namespaced
     shelf_interest/           <- per-shelf interest outputs
     shelf_vector_interest/    <- shelf-vector pipeline's own outputs
+    staff_interaction/        <- staff-customer interaction outputs
 ```
 
 ## 1. Mark the boundary (run once per video)
@@ -288,11 +299,83 @@ Written to `pipelines/outputs/shelf_vector_interest/`:
 - `shelf_vector_events.csv` — start/end/duration for each shelf-face event
 - `shelf_vector_annotated.mp4` — face edge/normal/zone overlay, live duration, per-shelf totals
 
+## 5. Staff-customer interaction pipeline (Task 3, entrance.mp4)
+
+```
+# one-time setup: click each staff member once (a couple of clicks per
+# person, on different frames, gives a more robust gallery)
+python3 pipelines/staff_interaction/staff_gui.py --video raw_videos/entrance.mp4
+
+python3 pipelines/staff_interaction/staff_interaction_pipeline.py --video raw_videos/entrance.mp4 --preview
+```
+
+Average number of customer interaction sessions per staff member, using
+YOLO pose + IoU/ReID tracking for identity. Two independent judgments,
+each with a default (non-VLM) and an opt-in VLM implementation -- see
+`scoring.py`'s module docstring for the full history of why the defaults
+ended up here:
+
+  - `--role-method reid` (default): is this track staff? Cosine similarity
+    between the track's running ReID embedding (already computed for
+    tracking) and a small gallery enrolled once via `staff_gui.py`.
+  - `--role-method vlm` (opt-in, `pipelines/staff_interaction/vlm_judge.py`):
+    a VLM asked "is this a staff apron?" per track crop. No setup step,
+    but slower and, on this footage, not more reliable than the enrolled
+    gallery -- prompt-tuning it to stop matching customers' bags/jackets
+    tended to also start rejecting real staff, and vice versa.
+  - `--interaction-method rule` (default): a weighted proximity +
+    mutual-facing score computed directly from the pose keypoints already
+    extracted for tracking -- no model call. See `rule_pair_cues` in
+    `scoring.py`.
+  - `--interaction-method vlm` (opt-in): a VLM asked "are these two people
+    interacting?" per pair, throttled by a cooldown while they stay close.
+
+Both role methods drive the same sticky majority-vote latch (a track that
+votes staff stays staff for as long as it remains in view, matching the
+brief's "same staff instance for as long as they remain within the camera
+view"). Both interaction methods drive the same open/gap/cooldown session
+state machine: a pair opens a session after sustained engagement, closes
+after a gap (or an immediate force-close once they physically separate
+beyond `--near-bh`/`--far-bh`), `--min-event-s` drops sessions that opened
+and immediately closed, and `--cooldown-s` after a close is what makes
+"customer leaves and later returns to the same staff member" count as a
+*separate* session per the brief.
+
+**Why ReID-gallery + rule-based scoring are the defaults, not the VLM.**
+Two rounds of VLM prompt engineering on the role question each fixed one
+failure mode by making the other worse: a stricter "is this an apron"
+prompt that stopped matching customers' bags/jackets also started
+rejecting real staff whose uniform didn't look exactly like the
+description, and a looser prompt did the reverse -- there wasn't a single
+wording that was precise for *this specific footage's* uniform without
+either false-positive or false-negative failures. The interaction VLM had
+a mirror problem: a real exchange (e.g. staff bent down talking to a
+seated customer) sometimes read as "not interacting" because the framing
+didn't match the VLM's idea of "actively interacting" in general. Both
+were also the slowest part of the pipeline by a wide margin.
+
+Trading a few seconds of one-time manual enrolment (`staff_gui.py`) for a
+deterministic classifier sidesteps this: role becomes "does this track's
+appearance match one of *these* specific people" (a narrower, better
+question than "does this look like an apron in general" or "is this pixel
+apron-coloured"), and interaction becomes arithmetic on keypoints already
+computed for tracking, tunable via named thresholds (`--near-bh`,
+`--face-deg`, `--score-threshold`, ...) instead of English prompt wording.
+Neither approach is strictly better in every case, which is why both stay
+in the codebase, selectable per run.
+
+Written to `pipelines/outputs/staff_interaction/`:
+- `staff_interaction_summary.csv` — per staff instance: sessions, first/last
+  frame, plus `staff_count` / `total_sessions` / `average_sessions_per_staff`
+  (every detected staff instance is included, even at 0 sessions)
+- `staff_interaction_sessions.csv` — one row per counted session
+- `staff_interaction_annotated.mp4` — role-colored boxes, pair engagement
+  lines/scores, live session duration
+
 ## Adding more pipelines
 
-Each new pipeline (e.g. dwell-time, staff-customer interaction, ReID-based
-re-entry) should follow the same shape: its own subfolder under
-`pipelines/`, reading geometry configs (`store_boundary_zones.json`,
-`shelf_zones.json`, and/or `shelf_faces.json`) as needed, writing to
-its own `pipelines/outputs/<name>/`, and staying free
-of imports from sibling pipelines. Combine results after the fact.
+Each new pipeline (e.g. dwell-time, ReID-based re-entry) should follow the
+same shape: its own subfolder under `pipelines/`, reading geometry configs
+(`store_boundary_zones.json`, `shelf_zones.json`, `shelf_faces.json`) as
+needed, writing to its own `pipelines/outputs/<name>/`, and staying free of
+imports from sibling pipelines. Combine results after the fact.
