@@ -57,6 +57,7 @@ import cv2
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_ROOT = ROOT / "outputs"
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
@@ -176,7 +177,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
     ap.add_argument(
-        "--out-dir", type=Path, default=Path(__file__).resolve().parents[1] / "outputs" / "staff_interaction"
+        "--out-dir", type=Path, default=OUTPUT_ROOT / "csv" / "staff_interaction", help="CSV output folder"
+    )
+    ap.add_argument(
+        "--video-out",
+        type=Path,
+        default=OUTPUT_ROOT / "staff_interaction_annotated.mp4",
+        help="annotated mp4 path",
     )
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--no-video", action="store_true")
@@ -356,9 +363,8 @@ def main() -> None:
 
     writer = None
     if not args.no_video:
-        args.out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = args.out_dir / "staff_interaction_annotated.mp4"
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
+        args.video_out.parent.mkdir(parents=True, exist_ok=True)
+        writer = cv2.VideoWriter(str(args.video_out), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
 
     sessions: list = []
     staff_records: dict[int, dict] = {}
@@ -509,7 +515,7 @@ def main() -> None:
     for pth in paths:
         print(" ", pth)
     if writer is not None:
-        print(" ", args.out_dir / "staff_interaction_annotated.mp4")
+        print(" ", args.video_out)
 
 
 if __name__ == "__main__":

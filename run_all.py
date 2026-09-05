@@ -25,6 +25,7 @@ import cv2
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent
+OUTPUT_ROOT = ROOT / "outputs"
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
@@ -102,7 +103,7 @@ def _draw_staff_overlay(vis, live, pair_cues, interactions, rule_params, frame_s
 
 def run_entrance_combined(
     video: Path,
-    out_dir: Path,
+    out_root: Path,
     *,
     preview: bool,
     no_video: bool,
@@ -150,14 +151,14 @@ def run_entrance_combined(
     rule_params = RuleInteractionParams()
     interactions = RuleInteractionTracker(rule_params, fps=fps_eff)
 
-    interest_out = ROOT / "pipelines" / "outputs" / "interest"
-    staff_out = ROOT / "pipelines" / "outputs" / "staff_interaction"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    interest_out = out_root / "csv" / "interest"
+    staff_out = out_root / "csv" / "staff_interaction"
+    video_out = out_root / "entrance_annotated.mp4"
 
     writer = None
     if not no_video:
-        out_path = out_dir / "entrance_annotated.mp4"
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
+        video_out.parent.mkdir(parents=True, exist_ok=True)
+        writer = cv2.VideoWriter(str(video_out), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
 
     interest_records: dict[int, dict] = {}
     last_cue_by_id: dict[int, object] = {}
@@ -309,11 +310,12 @@ def run_entrance_combined(
     for p in i_paths + s_paths:
         print(" ", p)
     if writer is not None:
-        print(" ", out_dir / "entrance_annotated.mp4")
+        print(" ", video_out)
 
 
 def run_shelf_vector(
     video: Path,
+    out_root: Path,
     *,
     preview: bool,
     no_video: bool,
@@ -328,6 +330,10 @@ def run_shelf_vector(
         str(ROOT / "pipelines" / "shelf_vector_interest" / "shelf_vector_pipeline.py"),
         "--video",
         str(video),
+        "--out-dir",
+        str(out_root / "csv" / "shelf_vector_interest"),
+        "--video-out",
+        str(out_root / "interior_annotated.mp4"),
         "--stride",
         str(stride),
         "--pose-imgsz",
@@ -353,11 +359,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Run interest+staff (one video) then shelf-vector interest.")
     ap.add_argument("--entrance-video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
     ap.add_argument("--interior-video", type=Path, default=ROOT / "raw_videos" / "interior.mp4")
-    ap.add_argument(
-        "--combined-out-dir",
-        type=Path,
-        default=ROOT / "pipelines" / "outputs" / "combined",
-    )
+    ap.add_argument("--out-dir", type=Path, default=OUTPUT_ROOT, help="root output folder: videos here, CSVs in csv/")
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--stride", type=int, default=2)
@@ -372,7 +374,7 @@ def main() -> None:
     if not args.skip_entrance:
         run_entrance_combined(
             args.entrance_video,
-            args.combined_out_dir,
+            args.out_dir,
             preview=args.preview,
             no_video=args.no_video,
             stride=args.stride,
@@ -386,6 +388,7 @@ def main() -> None:
 
     run_shelf_vector(
         args.interior_video,
+        args.out_dir,
         preview=args.preview,
         no_video=args.no_video,
         stride=args.stride,
@@ -398,3 +401,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+#ssh -i "/Users/rajveeryadav/Documents/AWS/Private_keys/aws_key.pem" ubuntu@ec2-15-206-147-250.ap-south-1.compute.amazonaws.com

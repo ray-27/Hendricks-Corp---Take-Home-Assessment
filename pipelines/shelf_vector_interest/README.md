@@ -91,14 +91,14 @@ staying stable when they glance rather than fully turn.
        --video raw_videos/interior.mp4 --preview
    ```
 
-## Outputs (`pipelines/outputs/shelf_vector_interest/`)
+## Outputs (`outputs/`)
 
-- `shelf_vector_annotated.mp4` — per-shelf edge/normal/zone overlay, boxes
+- `outputs/interior_annotated.mp4` — per-shelf edge/normal/zone overlay, boxes
   colored by assigned shelf, live interaction duration, running per-shelf
   and total event counts, and a line connecting an engaged customer to the
   shelf they're engaging.
-- `shelf_vector_summary.csv` — `shelf_id, shelf_name, interest_events`.
-- `shelf_vector_events.csv` — one row per counted event: `track_id,
+- `outputs/csv/shelf_vector_interest/shelf_vector_summary.csv` — `shelf_id, shelf_name, interest_events`.
+- `outputs/csv/shelf_vector_interest/shelf_vector_events.csv` — one row per counted event: `track_id,
   shelf_id, shelf_name, start_frame, end_frame, duration_s`.
 
 ## Key flags

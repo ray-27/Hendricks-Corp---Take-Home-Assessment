@@ -46,11 +46,19 @@ python3 run_all.py --skip-shelf          # combined entrance video only
 python3 run_all.py --skip-entrance       # shelf-vector only
 ```
 
-Outputs:
-- `pipelines/outputs/combined/entrance_annotated.mp4` — interest + staff on the same frames
-- `pipelines/outputs/interest/` — interest CSVs
-- `pipelines/outputs/staff_interaction/` — staff CSVs
-- `pipelines/outputs/shelf_vector_interest/` — shelf video + CSVs
+Outputs (project-root `outputs/`):
+
+```
+outputs/
+  entrance_annotated.mp4      <- exterior: interest + staff on the same video
+  interior_annotated.mp4      <- shelf-vector interest
+  csv/
+    interest/
+    staff_interaction/
+    shelf_vector_interest/
+```
+
+Yes — the exterior/entrance annotated video is `outputs/entrance_annotated.mp4`.
 
 ---
 

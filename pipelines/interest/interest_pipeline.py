@@ -37,6 +37,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_ROOT = ROOT / "outputs"
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
@@ -211,7 +212,8 @@ def write_outputs(out_dir: Path, counts: dict, records: dict) -> list[Path]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
-    ap.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parents[1] / "outputs" / "interest")
+    ap.add_argument("--out-dir", type=Path, default=OUTPUT_ROOT / "csv" / "interest", help="CSV output folder")
+    ap.add_argument("--video-out", type=Path, default=OUTPUT_ROOT / "interest_annotated.mp4", help="annotated mp4 path")
     ap.add_argument("--stride", type=int, default=2, help="process every Nth frame")
     ap.add_argument("--max-frames", type=int, default=0, help="0 = whole video")
     ap.add_argument("--preview", action="store_true", help="show a window while running")
@@ -262,12 +264,11 @@ def main() -> None:
     records: dict[int, dict] = {}
     last_cue_by_id: dict[int, object] = {}
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
     writer = None
     if not args.no_video:
-        out_path = args.out_dir / "interest_annotated.mp4"
+        args.video_out.parent.mkdir(parents=True, exist_ok=True)
         writer = cv2.VideoWriter(
-            str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh)
+            str(args.video_out), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh)
         )
 
     cue_rows = []
@@ -410,7 +411,7 @@ def main() -> None:
     for p in paths:
         print(" ", p)
     if writer is not None:
-        print(" ", args.out_dir / "interest_annotated.mp4")
+        print(" ", args.video_out)
 
 
 if __name__ == "__main__":

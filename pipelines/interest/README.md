@@ -54,12 +54,12 @@ From `scoring.py` (`InterestParams`):
 
 ## Outputs
 
-Written to `pipelines/outputs/interest/`:
+Written to project-root `outputs/`:
 
-- `interest_summary.csv`
-- `interest_track_log.csv`
-- `interest_annotated.mp4` (unless `--no-video`)
-- `interest_cues.csv` (with `--dump-cues`)
+- `outputs/interest_annotated.mp4` (unless `--no-video`)
+- `outputs/csv/interest/interest_summary.csv`
+- `outputs/csv/interest/interest_track_log.csv`
+- `outputs/csv/interest/interest_cues.csv` (with `--dump-cues`)
 
 ## Notes
 

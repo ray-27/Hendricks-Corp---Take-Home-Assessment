@@ -34,8 +34,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_ROOT = ROOT / "outputs"
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
@@ -125,7 +127,16 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "interior.mp4")
     ap.add_argument(
-        "--out-dir", type=Path, default=Path(__file__).resolve().parents[1] / "outputs" / "shelf_vector_interest"
+        "--out-dir",
+        type=Path,
+        default=OUTPUT_ROOT / "csv" / "shelf_vector_interest",
+        help="CSV output folder",
+    )
+    ap.add_argument(
+        "--video-out",
+        type=Path,
+        default=OUTPUT_ROOT / "interior_annotated.mp4",
+        help="annotated mp4 path",
     )
     ap.add_argument("--preview", action="store_true")
     ap.add_argument(
@@ -200,9 +211,8 @@ def main() -> None:
 
     writer = None
     if not args.no_video:
-        args.out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = args.out_dir / "shelf_vector_annotated.mp4"
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
+        args.video_out.parent.mkdir(parents=True, exist_ok=True)
+        writer = cv2.VideoWriter(str(args.video_out), cv2.VideoWriter_fourcc(*"mp4v"), fps_eff, (fw, fh))
 
     events: list = []
     frame_step = 0
@@ -212,11 +222,18 @@ def main() -> None:
         f"faces={len(faces)} engage={params.engage_s:.1f}s cooldown={params.cooldown_s:.1f}s reid={use_reid}"
     )
 
+    pbar = tqdm(
+        total=total if total > 0 else None,
+        desc=args.video.name,
+        unit="frame",
+        dynamic_ncols=True,
+    )
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         frame_raw += 1
+        pbar.update(1)
         if (frame_raw - 1) % stride:
             continue
         frame_step += 1
@@ -316,8 +333,12 @@ def main() -> None:
                 if (cv2.waitKey(1) & 0xFF) == ord("q"):
                     break
 
+        pbar.set_postfix(people=len(live), events=len(events), refresh=False)
+
         if args.max_frames and frame_step >= args.max_frames:
             break
+
+    pbar.close()
 
     for tid in list(engagement.state.keys()):
         ev = engagement.close(tid, frame_step, reason="end")
@@ -340,7 +361,7 @@ def main() -> None:
     for pth in paths:
         print(" ", pth)
     if writer is not None:
-        print(" ", args.out_dir / "shelf_vector_annotated.mp4")
+        print(" ", args.video_out)
 
 
 if __name__ == "__main__":

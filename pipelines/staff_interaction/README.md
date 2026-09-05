@@ -235,9 +235,10 @@ sessions and is included in the average, per *"All detected staff
 instances should be included when calculating the average number of
 interactions, including staff members with zero detected interactions."*
 
-## Outputs (`pipelines/outputs/staff_interaction/`)
+## Outputs (`outputs/`)
 
-- `staff_interaction_summary.csv` — one row per staff instance
+- `outputs/staff_interaction_annotated.mp4` (when this pipeline is run on its own)
+- `outputs/csv/staff_interaction/staff_interaction_summary.csv` — one row per staff instance
   (`staff_instance, track_id, interaction_sessions, first_frame,
   last_frame`), plus `staff_count`, `total_sessions`, and
   `average_sessions_per_staff` at the bottom.
