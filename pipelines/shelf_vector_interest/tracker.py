@@ -19,10 +19,27 @@ starting a fresh one, so a person moving between shelves keeps one ID.
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import (  # noqa: E402
+    REID_EMB_EMA,
+    REID_RELINK,
+    REID_RELINK_MAX_DIST_BH,
+    REID_THRESHOLD,
+    REID_WEIGHT,
+    SHELF_MAX_MISSED,
+    SHELF_RETIRED_TTL_FRAMES,
+    TRACK_MATCH_IOU,
+)
 
 
 def iou(a, b) -> float:
@@ -73,14 +90,14 @@ class Track:
 class PersonTracker:
     def __init__(
         self,
-        match_iou: float = 0.25,
-        max_missed: int = 90,
-        reid_weight: float = 0.65,
-        reid_threshold: float = 0.52,
-        emb_ema: float = 0.85,
-        relink_similarity: float = 0.58,
-        relink_max_dist_bh: float = 6.0,
-        retired_ttl_frames: int = 450,
+        match_iou: float = TRACK_MATCH_IOU,
+        max_missed: int = SHELF_MAX_MISSED,
+        reid_weight: float = REID_WEIGHT,
+        reid_threshold: float = REID_THRESHOLD,
+        emb_ema: float = REID_EMB_EMA,
+        relink_similarity: float = REID_RELINK,
+        relink_max_dist_bh: float = REID_RELINK_MAX_DIST_BH,
+        retired_ttl_frames: int = SHELF_RETIRED_TTL_FRAMES,
     ) -> None:
         self.match_iou = match_iou
         self.max_missed = max_missed

@@ -8,6 +8,4 @@ customtkinter>=5.2
 torch>=2.0
 torchvision>=0.15
 onnx2torch>=1.5
-transformers>=4.49  # Qwen2-VL support, used by pipelines/staff_interaction/vlm_judge.py
-accelerate>=0.30    # recommended by transformers for model loading/device placement
 tqdm>=4.66          # progress bar, used by pipelines/staff_interaction/staff_interaction_pipeline.py

@@ -26,11 +26,19 @@ passer-by.
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import INTEREST_MAX_MISSED, INTEREST_TRACK_MIN_HITS, TRACK_MATCH_IOU  # noqa: E402
 
 
 def iou(a, b) -> float:
@@ -81,9 +89,9 @@ class Track:
 class IoUTracker:
     def __init__(
         self,
-        match_iou: float = 0.25,
-        max_missed: int = 45,
-        min_hits: int = 3,
+        match_iou: float = TRACK_MATCH_IOU,
+        max_missed: int = INTEREST_MAX_MISSED,
+        min_hits: int = INTEREST_TRACK_MIN_HITS,
         spawn_predicate: Callable[[object], bool] | None = None,
     ) -> None:
         self.match_iou = match_iou

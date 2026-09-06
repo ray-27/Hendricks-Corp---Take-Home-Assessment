@@ -1,0 +1,21 @@
+# Git / local junk
+.git
+.gitignore
+.cursor
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+.venv
+venv
+*.egg-info
+
+# Large / generated (mount or download at runtime)
+raw_videos
+outputs
+models
+*.pt
+*.onnx
+
+# Docs not needed to run
+info.pdf
+upload_to_aws.sh

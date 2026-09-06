@@ -4,7 +4,7 @@ Staff-enrolment GUI for the staff-customer interaction pipeline (Task 3).
 
 One-time, one-step manual marking: scrub to a frame, click each staff
 member's body once to enrol a ReID embedding into a small gallery, saved
-to `pipelines/configs/staff_marks.json`, keyed by video filename. Click
+to `configs/staff_marks.json`, keyed by video filename. Click
 the same person again on a different frame (different pose/lighting) to
 add another embedding for them -- a few embeddings per staff member makes
 the nearest-neighbour match in `scoring.update_role_reid` more robust than
@@ -34,9 +34,11 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from configs.paths import ENTRANCE_VIDEO, STAFF_MARKS_JSON  # noqa: E402
 from staff_interaction.staff_store import (  # noqa: E402
     StaffMarks,
     load_staff_marks,
@@ -73,7 +75,7 @@ class StaffGuiApp(ctk.CTk):
         ctk.CTkButton(bar, text="Undo last", width=100, command=self._undo).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Clear all", width=100, command=self._clear).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Save", width=90, command=self._save).pack(side="left", padx=12)
-        ctk.CTkLabel(bar, text="saving to: pipelines/configs/staff_marks.json").pack(side="left", padx=12)
+        ctk.CTkLabel(bar, text=f"saving to: {STAFF_MARKS_JSON}").pack(side="left", padx=12)
 
         nav = ctk.CTkFrame(self)
         nav.pack(fill="x", padx=8, pady=(0, 6))
@@ -195,7 +197,7 @@ class StaffGuiApp(ctk.CTk):
         ok, why = self.marks.ready()
         save_staff_marks(self.video.name, self.marks)
         extra = "" if ok else f"  (incomplete: {why})"
-        self.status.configure(text=f"Saved to pipelines/configs/staff_marks.json{extra}")
+        self.status.configure(text=f"Saved to {STAFF_MARKS_JSON}{extra}")
 
     # ------------------------------------------------------------ drawing
 
@@ -228,7 +230,7 @@ class StaffGuiApp(ctk.CTk):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
+    ap.add_argument("--video", type=Path, default=ENTRANCE_VIDEO)
     args = ap.parse_args()
     if not args.video.exists():
         raise SystemExit(f"Video not found: {args.video}")

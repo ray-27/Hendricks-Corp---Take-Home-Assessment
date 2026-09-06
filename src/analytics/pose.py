@@ -14,10 +14,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import MODELS_DIR, POSE_DET_CONF, POSE_IMGSZ, POSE_KP_CONF, POSE_KPT_GATE_H, POSE_MIN_H, POSE_MIN_KPTS, POSE_MIN_W, POSE_WEIGHTS_NAME  # noqa: E402
 
 PERSON_CLASS_ID = 0
 
@@ -26,17 +33,16 @@ L_SHO, R_SHO = 5, 6
 L_HIP, R_HIP = 11, 12
 L_ANK, R_ANK = 15, 16
 
-KP_CONF = 0.30  # below this a keypoint is treated as missing rather than wrong
+KP_CONF = POSE_KP_CONF  # below this a keypoint is treated as missing rather than wrong
 
 # Shared default for every pipeline. Local file wins if present; otherwise
 # Ultralytics downloads the checkpoint on first use.
-_MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
-DEFAULT_POSE_WEIGHTS = "yolo11x-pose.pt"
+DEFAULT_POSE_WEIGHTS = POSE_WEIGHTS_NAME
 
 
 def default_pose_weights() -> str:
-    local = _MODELS_DIR / DEFAULT_POSE_WEIGHTS
-    return str(local) if local.exists() else DEFAULT_POSE_WEIGHTS
+    local = MODELS_DIR / POSE_WEIGHTS_NAME
+    return str(local) if local.exists() else POSE_WEIGHTS_NAME
 
 
 def best_device() -> str:
@@ -194,12 +200,12 @@ class PoseDetector:
     def __init__(
         self,
         weights: str | None = None,
-        conf: float = 0.25,
-        min_h: int = 32,
-        min_w: int = 12,
-        imgsz: int = 1280,
-        kpt_gate_h: int = 100,
-        min_kpts: int = 4,
+        conf: float = POSE_DET_CONF,
+        min_h: int = POSE_MIN_H,
+        min_w: int = POSE_MIN_W,
+        imgsz: int = POSE_IMGSZ,
+        kpt_gate_h: int = POSE_KPT_GATE_H,
+        min_kpts: int = POSE_MIN_KPTS,
         device: str | None = None,
     ) -> None:
         if weights is None:

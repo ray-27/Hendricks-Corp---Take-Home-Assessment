@@ -2,48 +2,30 @@
 """
 Staff-customer interaction pipeline (Task 3), for entrance.mp4.
 
-Two independent judgments, each with a non-VLM (default) and a VLM
-implementation selectable per-run (see `scoring.py`'s module docstring for
-the full reasoning behind the defaults):
+Two judgments, both rule/model-free at inference time (see `scoring.py`'s
+module docstring for the full reasoning, including why an earlier VLM-based
+version of each was tried and dropped):
 
-  1. staff vs customer, per track.
-       --role-method reid (default)  cosine similarity between the track's
-                                      running ReID embedding (already
-                                      computed for tracking) and a small
-                                      gallery enrolled once via
-                                      `staff_gui.py`. Requires that
-                                      one-time setup step.
-       --role-method vlm             a VLM (Qwen2-VL-2B) asked "is this a
-                                      staff apron?" per track crop. No
-                                      setup step, but slower and, on this
-                                      footage, less reliable than the
-                                      enrolled-gallery approach.
-  2. is this (staff, customer) pair actively interacting.
-       --interaction-method rule (default)  a weighted proximity +
-                                             mutual-facing score from pose
-                                             keypoints already extracted
-                                             for tracking. No model call.
-       --interaction-method vlm             a VLM asked "are these two
-                                             people interacting?" per pair,
-                                             throttled by a cooldown.
+  1. staff vs customer, per track -- cosine similarity between the track's
+     running ReID embedding (already computed for tracking) and a small
+     gallery enrolled once via `staff_gui.py`. Requires that one-time setup
+     step.
+  2. is this (staff, customer) pair actively interacting -- a weighted
+     proximity + mutual-facing score from pose keypoints already extracted
+     for tracking. No model call.
 
-Both trackers/classifiers share the same open/gap/cooldown/min-event
-session-state-machine shape either way -- only the per-frame/per-query
-signal that drives it differs.
+Both classifiers feed the same open/gap/cooldown/min-event session-state
+machine.
 
 Self-contained: has its own `tracker.py` (IoU + optional ReID for identity
 continuity only -- unrelated to role) and does not import from any sibling
 pipeline.
 
 Usage:
-    # one-time setup for the default ReID role method:
+    # one-time setup:
     python3 pipelines/staff_interaction/staff_gui.py --video raw_videos/entrance.mp4
 
     python3 pipelines/staff_interaction/staff_interaction_pipeline.py --video raw_videos/entrance.mp4 --preview
-
-    # fully rule-based, no setup, no VLM at all:
-    python3 pipelines/staff_interaction/staff_interaction_pipeline.py --video raw_videos/entrance.mp4 \\
-        --role-method vlm --interaction-method rule
 """
 
 from __future__ import annotations
@@ -57,22 +39,45 @@ import cv2
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_ROOT = ROOT / "outputs"
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from analytics.pose import PoseDetector  # noqa: E402
+from configs.paths import (  # noqa: E402
+    ENTRANCE_VIDEO,
+    FRAME_STRIDE,
+    POSE_IMGSZ,
+    REID_RELINK,
+    REID_THRESHOLD,
+    REID_WEIGHT,
+    STAFF_COOLDOWN_S,
+    STAFF_CSV_DIR,
+    STAFF_FACE_DEG,
+    STAFF_GAP_CLOSE_S,
+    STAFF_MAX_MISSED,
+    STAFF_MIN_EVENT_S,
+    STAFF_MIN_HITS,
+    STAFF_NEAR_BH,
+    STAFF_OPEN_S,
+    STAFF_RETIRED_TTL_FRAMES,
+    STAFF_ROLE_MIN_CHECKS,
+    STAFF_ROLE_MIN_RATIO,
+    STAFF_ROLE_MIN_VOTES,
+    STAFF_ROLE_SIM_THRESHOLD,
+    STAFF_SCORE_THRESHOLD,
+    STAFF_VERY_NEAR_BH,
+    STAFF_VIDEO_OUT,
+    STAFF_W_FACE,
+    STAFF_W_PROX,
+)
 from reid.embedder import ReIDEmbedder  # noqa: E402
 
 from staff_interaction.scoring import (  # noqa: E402
-    InteractionParams,
-    InteractionTracker,
-    RoleParams,
     RoleReIDParams,
     RuleInteractionParams,
     RuleInteractionTracker,
     rule_pair_cues,
-    update_role,
     update_role_reid,
 )
 from staff_interaction.staff_store import load_staff_marks  # noqa: E402
@@ -175,99 +180,54 @@ def write_outputs(out_dir: Path, staff_records: dict, summary: dict, sessions: l
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
+    ap.add_argument("--video", type=Path, default=ENTRANCE_VIDEO)
     ap.add_argument(
-        "--out-dir", type=Path, default=OUTPUT_ROOT / "csv" / "staff_interaction", help="CSV output folder"
+        "--out-dir", type=Path, default=STAFF_CSV_DIR, help="CSV output folder"
     )
     ap.add_argument(
         "--video-out",
         type=Path,
-        default=OUTPUT_ROOT / "staff_interaction_annotated.mp4",
+        default=STAFF_VIDEO_OUT,
         help="annotated mp4 path",
     )
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--no-video", action="store_true")
-    ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--stride", type=int, default=FRAME_STRIDE)
     ap.add_argument("--max-frames", type=int, default=0)
 
     ap.add_argument("--pose-weights", type=str, default=None, help="YOLO-pose checkpoint (default: yolo11x-pose.pt)")
-    ap.add_argument("--pose-imgsz", type=int, default=1280)
+    ap.add_argument("--pose-imgsz", type=int, default=POSE_IMGSZ)
 
-    ap.add_argument(
-        "--role-method",
-        choices=["reid", "vlm"],
-        default="reid",
-        help="reid (default): cosine match against a gallery enrolled once via staff_gui.py. "
-        "vlm: ask a VLM per track crop, no setup step needed but slower/less reliable here.",
-    )
-    ap.add_argument(
-        "--interaction-method",
-        choices=["rule", "vlm"],
-        default="rule",
-        help="rule (default): weighted proximity + mutual-facing score from pose keypoints, no model call. "
-        "vlm: ask a VLM per pair, throttled by a cooldown.",
-    )
+    # role: cosine match against a gallery enrolled once via staff_gui.py
+    ap.add_argument("--role-sim-threshold", type=float, default=STAFF_ROLE_SIM_THRESHOLD, help="cosine similarity to latch staff")
+    ap.add_argument("--role-reid-min-votes", type=int, default=STAFF_ROLE_MIN_VOTES)
+    ap.add_argument("--role-reid-min-ratio", type=float, default=STAFF_ROLE_MIN_RATIO)
+    ap.add_argument("--role-reid-min-checks", type=int, default=STAFF_ROLE_MIN_CHECKS)
 
-    # role: reid (default)
-    ap.add_argument("--role-sim-threshold", type=float, default=0.62, help="cosine similarity to latch staff")
-    ap.add_argument("--role-reid-min-votes", type=int, default=3)
-    ap.add_argument("--role-reid-min-ratio", type=float, default=0.55)
-    ap.add_argument("--role-reid-min-checks", type=int, default=5)
+    # interaction: weighted proximity + mutual-facing score from pose keypoints, no model call
+    ap.add_argument("--near-bh", type=float, default=STAFF_NEAR_BH, help="conversational distance, body-heights")
+    ap.add_argument("--very-near-bh", type=float, default=STAFF_VERY_NEAR_BH, help="this close, skip the facing requirement")
+    ap.add_argument("--face-deg", type=float, default=STAFF_FACE_DEG, help="facing-cone half-angle, degrees")
+    ap.add_argument("--w-prox", type=float, default=STAFF_W_PROX, help="weight of the proximity cue")
+    ap.add_argument("--w-face", type=float, default=STAFF_W_FACE, help="weight of the facing cue")
+    ap.add_argument("--score-threshold", type=float, default=STAFF_SCORE_THRESHOLD, help="blended score to count as engaged")
+    ap.add_argument("--open-s", type=float, default=STAFF_OPEN_S, help="sustained engagement required to open a session")
+    ap.add_argument("--gap-close-s", type=float, default=STAFF_GAP_CLOSE_S, help="tolerated disengaged gap before closing")
+    ap.add_argument("--min-event-s", type=float, default=STAFF_MIN_EVENT_S)
+    ap.add_argument("--cooldown-s", type=float, default=STAFF_COOLDOWN_S, help="per (staff, customer) cooldown after a close")
+    ap.add_argument("--min-hits", type=int, default=STAFF_MIN_HITS)
 
-    # role: vlm (opt-in)
-    ap.add_argument("--vlm-model", type=str, default="Qwen/Qwen2-VL-2B-Instruct")
-    ap.add_argument("--vlm-max-side", type=int, default=448, help="crops are downsized to this before the VLM call")
-    ap.add_argument(
-        "--staff-description",
-        type=str,
-        default="",
-        help="optional free-text description of what staff aprons actually look like in this "
-        "footage -- appended to the VLM role prompt; only used with --role-method vlm",
-    )
-    ap.add_argument("--role-vlm-min-votes", type=int, default=2)
-    ap.add_argument("--role-vlm-min-ratio", type=float, default=0.60)
-    ap.add_argument("--role-vlm-max-checks", type=int, default=4)
-    ap.add_argument("--role-vlm-query-cooldown-s", type=float, default=1.0)
-    ap.add_argument("--role-vlm-recheck-cooldown-s", type=float, default=6.0)
-
-    # interaction: rule (default)
-    ap.add_argument("--near-bh", type=float, default=1.45, help="conversational distance, body-heights")
-    ap.add_argument("--very-near-bh", type=float, default=0.75, help="this close, skip the facing requirement")
-    ap.add_argument("--face-deg", type=float, default=75.0, help="facing-cone half-angle, degrees")
-    ap.add_argument("--w-prox", type=float, default=0.55, help="weight of the proximity cue")
-    ap.add_argument("--w-face", type=float, default=0.45, help="weight of the facing cue")
-    ap.add_argument("--score-threshold", type=float, default=0.50, help="blended score to count as engaged")
-    ap.add_argument("--open-s", type=float, default=1.00, help="sustained engagement required to open a session")
-    ap.add_argument("--gap-close-s", type=float, default=1.50, help="tolerated disengaged gap before closing")
-
-    # interaction: vlm (opt-in)
-    ap.add_argument("--far-bh", type=float, default=2.60, help="force-close distance, body-heights (vlm only)")
-    ap.add_argument("--query-cooldown-s", type=float, default=2.50, help="spacing between VLM queries per pair")
-    ap.add_argument("--retry-cooldown-s", type=float, default=1.00, help="retry spacing after an unparseable answer")
-    ap.add_argument("--open-confirmations", type=int, default=1)
-    ap.add_argument("--close-confirmations", type=int, default=2)
-
-    # interaction: shared by both methods
-    ap.add_argument("--min-event-s", type=float, default=1.20)
-    ap.add_argument("--cooldown-s", type=float, default=3.00, help="per (staff, customer) cooldown after a close")
-    ap.add_argument("--min-hits", type=int, default=4)
-
-    # tracker (IoU + optional ReID) -- identity continuity only, unrelated to role
-    ap.add_argument(
-        "--no-reid",
-        action="store_true",
-        help="disable ReID for IDENTITY TRACKING (IoU-only); incompatible with --role-method reid, "
-        "which needs the ReID embedding to classify staff",
-    )
+    # tracker (IoU + ReID) -- identity continuity, and the embedding the role classifier reuses
+    ap.add_argument("--no-reid", action="store_true", help="disable ReID (IoU-only); role classification needs the ReID embedding, so don't combine this with a normal run")
     ap.add_argument("--reid-model", type=Path, default=None)
-    ap.add_argument("--reid-threshold", type=float, default=0.52)
-    ap.add_argument("--reid-relink", type=float, default=0.58)
-    ap.add_argument("--reid-weight", type=float, default=0.65)
-    ap.add_argument("--max-missed", type=int, default=45)
+    ap.add_argument("--reid-threshold", type=float, default=REID_THRESHOLD)
+    ap.add_argument("--reid-relink", type=float, default=REID_RELINK)
+    ap.add_argument("--reid-weight", type=float, default=REID_WEIGHT)
+    ap.add_argument("--max-missed", type=int, default=STAFF_MAX_MISSED)
     ap.add_argument(
         "--retired-ttl-frames",
         type=int,
-        default=90,
+        default=STAFF_RETIRED_TTL_FRAMES,
         help="short on purpose -- bridges brief occlusion only; the brief allows treating a staff "
         "member who fully leaves and re-enters view as a new instance",
     )
@@ -275,34 +235,25 @@ def main() -> None:
 
     if not args.video.exists():
         raise SystemExit(f"Video not found: {args.video}")
-    if args.no_reid and args.role_method == "reid":
-        raise SystemExit("--no-reid disables the ReID embedding that --role-method reid needs; drop one of them.")
+    if args.no_reid:
+        raise SystemExit("--no-reid disables the ReID embedding that role classification needs; drop it.")
 
-    gallery = None
-    if args.role_method == "reid":
-        marks = load_staff_marks(args.video.name)
-        ok, why = marks.ready()
-        if not ok:
-            raise SystemExit(
-                f"--role-method reid needs an enrolled staff gallery for {args.video.name} ({why}). Run:\n"
-                f"  python3 pipelines/staff_interaction/staff_gui.py --video {args.video}\n"
-                f"...then click each staff member once, and Save. Or pass --role-method vlm instead."
-            )
-        gallery = marks.gallery_matrix()
-        print(f"Loaded staff gallery: {gallery.shape[0]} embedding(s) for {args.video.name}")
+    marks = load_staff_marks(args.video.name)
+    ok, why = marks.ready()
+    if not ok:
+        raise SystemExit(
+            f"Needs an enrolled staff gallery for {args.video.name} ({why}). Run:\n"
+            f"  python3 pipelines/staff_interaction/staff_gui.py --video {args.video}\n"
+            f"...then click each staff member once, and Save."
+        )
+    gallery = marks.gallery_matrix()
+    print(f"Loaded staff gallery: {gallery.shape[0]} embedding(s) for {args.video.name}")
 
     role_reid_params = RoleReIDParams(
         similarity_threshold=args.role_sim_threshold,
         min_votes=args.role_reid_min_votes,
         min_ratio=args.role_reid_min_ratio,
         min_checks=args.role_reid_min_checks,
-    )
-    role_vlm_params = RoleParams(
-        min_votes=args.role_vlm_min_votes,
-        min_ratio=args.role_vlm_min_ratio,
-        max_checks=args.role_vlm_max_checks,
-        role_query_cooldown_s=args.role_vlm_query_cooldown_s,
-        recheck_cooldown_s=args.role_vlm_recheck_cooldown_s,
     )
     rule_interaction_params = RuleInteractionParams(
         near_bh=args.near_bh,
@@ -317,17 +268,6 @@ def main() -> None:
         min_event_s=args.min_event_s,
         min_hits=args.min_hits,
     )
-    vlm_interaction_params = InteractionParams(
-        near_bh=args.near_bh,
-        far_bh=args.far_bh,
-        query_cooldown_s=args.query_cooldown_s,
-        retry_cooldown_s=args.retry_cooldown_s,
-        open_confirmations=args.open_confirmations,
-        close_confirmations=args.close_confirmations,
-        min_event_s=args.min_event_s,
-        cooldown_s=args.cooldown_s,
-        min_hits=args.min_hits,
-    )
 
     cap = cv2.VideoCapture(str(args.video))
     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -338,10 +278,8 @@ def main() -> None:
     fps_eff = src_fps / stride
 
     pose = PoseDetector(weights=args.pose_weights, imgsz=int(args.pose_imgsz))
-    # ReID embeddings are needed both for identity tracking (unless --no-reid)
-    # and for the reid role classifier -- either reason is enough to compute them.
-    use_reid = (not args.no_reid) or (args.role_method == "reid")
-    reid = ReIDEmbedder(model_path=args.reid_model) if use_reid else None
+    # ReID embeddings drive both identity tracking and the role classifier.
+    reid = ReIDEmbedder(model_path=args.reid_model)
     tracker = PersonTracker(
         max_missed=args.max_missed,
         reid_weight=args.reid_weight,
@@ -350,16 +288,7 @@ def main() -> None:
         retired_ttl_frames=args.retired_ttl_frames,
     )
 
-    judge = None
-    if args.role_method == "vlm" or args.interaction_method == "vlm":
-        from staff_interaction.vlm_judge import VLMJudge
-
-        judge = VLMJudge(model_id=args.vlm_model, max_side=args.vlm_max_side, role_hint=args.staff_description)
-
-    if args.interaction_method == "rule":
-        interactions = RuleInteractionTracker(rule_interaction_params, fps=fps_eff)
-    else:
-        interactions = InteractionTracker(vlm_interaction_params, fps=fps_eff)
+    interactions = RuleInteractionTracker(rule_interaction_params, fps=fps_eff)
 
     writer = None
     if not args.no_video:
@@ -370,10 +299,7 @@ def main() -> None:
     staff_records: dict[int, dict] = {}
     frame_step = 0
     frame_raw = 0
-    print(
-        f"{args.video.name}: {total} frames @ {src_fps:.1f}fps stride={stride} -> {fps_eff:.1f}fps; "
-        f"role={args.role_method} interaction={args.interaction_method}"
-    )
+    print(f"{args.video.name}: {total} frames @ {src_fps:.1f}fps stride={stride} -> {fps_eff:.1f}fps")
 
     pbar = tqdm(
         total=total if total > 0 else None,
@@ -392,7 +318,7 @@ def main() -> None:
         frame_step += 1
 
         dets = pose.detect(frame)
-        embs = reid.embed([d.crop(frame) for d in dets]) if (use_reid and dets) else None
+        embs = reid.embed([d.crop(frame) for d in dets]) if dets else None
         live, retired = tracker.update(frame_step, dets, embeddings=embs)
 
         for tr in retired:
@@ -400,10 +326,7 @@ def main() -> None:
             sessions.extend(evs)
 
         for tr in live:
-            if args.role_method == "reid":
-                update_role_reid(tr, gallery, role_reid_params)
-            else:
-                update_role(tr, frame, judge, role_vlm_params, frame_step, fps_eff)
+            update_role_reid(tr, gallery, role_reid_params)
             if tr.is_staff:
                 rec = staff_records.setdefault(tr.track_id, {"first_frame": tr.first_frame, "last_frame": tr.last_frame})
                 rec["last_frame"] = tr.last_frame
@@ -415,14 +338,9 @@ def main() -> None:
         for s in staff:
             for c in customers:
                 key = (s.track_id, c.track_id)
-                if args.interaction_method == "rule":
-                    cues = rule_pair_cues(s, c, rule_interaction_params)
-                    pair_cues[key] = cues
-                    ev = interactions.update(s, c, cues, frame_step)
-                else:
-                    cues = interactions.eligible(s, c)
-                    pair_cues[key] = cues
-                    ev = interactions.update(s, c, cues, frame_step, frame, judge) if cues.eligible else None
+                cues = rule_pair_cues(s, c, rule_interaction_params)
+                pair_cues[key] = cues
+                ev = interactions.update(s, c, cues, frame_step)
                 if ev is not None:
                     sessions.append(ev)
 
@@ -454,26 +372,15 @@ def main() -> None:
                     is_open = interactions.is_open(s.track_id, c.track_id)
                     mid = ((s.foot_px + c.foot_px) * 0.5).astype(int)
 
-                    if args.interaction_method == "rule":
-                        show_line = is_open or cues.dist_bh <= rule_interaction_params.near_bh
-                        if show_line:
-                            line_color = ENGAGED_COLOR if is_open else (QUERIED_COLOR if cues.engaged else CANDIDATE_COLOR)
-                            cv2.line(vis, tuple(map(int, s.foot_px)), tuple(map(int, c.foot_px)), line_color, 2 if is_open else 1)
-                        if is_open:
-                            dur = interactions.current_duration_s(s.track_id, c.track_id, frame_step)
-                            cv2.putText(vis, f"{dur:.1f}s", tuple(mid), FONT, 0.45, ENGAGED_COLOR, 2)
-                        elif show_line:
-                            cv2.putText(vis, f"{cues.score:.2f}", tuple(mid), FONT, 0.42, QUERIED_COLOR, 2)
-                    else:
-                        if is_open or cues.eligible:
-                            line_color = ENGAGED_COLOR if is_open else (QUERIED_COLOR if cues.queried else CANDIDATE_COLOR)
-                            cv2.line(vis, tuple(map(int, s.foot_px)), tuple(map(int, c.foot_px)), line_color, 2 if is_open else 1)
-                        if cues.queried:
-                            ans = "?" if cues.answer is None else ("YES" if cues.answer else "no")
-                            cv2.putText(vis, f"vlm:{ans}", tuple(mid), FONT, 0.42, QUERIED_COLOR, 2)
-                        elif is_open:
-                            dur = interactions.current_duration_s(s.track_id, c.track_id, frame_step)
-                            cv2.putText(vis, f"{dur:.1f}s", tuple(mid), FONT, 0.45, ENGAGED_COLOR, 2)
+                    show_line = is_open or cues.dist_bh <= rule_interaction_params.near_bh
+                    if show_line:
+                        line_color = ENGAGED_COLOR if is_open else (QUERIED_COLOR if cues.engaged else CANDIDATE_COLOR)
+                        cv2.line(vis, tuple(map(int, s.foot_px)), tuple(map(int, c.foot_px)), line_color, 2 if is_open else 1)
+                    if is_open:
+                        dur = interactions.current_duration_s(s.track_id, c.track_id, frame_step)
+                        cv2.putText(vis, f"{dur:.1f}s", tuple(mid), FONT, 0.45, ENGAGED_COLOR, 2)
+                    elif show_line:
+                        cv2.putText(vis, f"{cues.score:.2f}", tuple(mid), FONT, 0.42, QUERIED_COLOR, 2)
 
             cv2.putText(vis, "STAFF INTERACTIONS", (10, 20), FONT, 0.55, (255, 255, 255), 2)
             vis = draw_metric_table(vis, staff_records, interactions.summary())

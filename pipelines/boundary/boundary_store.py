@@ -1,18 +1,23 @@
 """Store boundary contract used by pipelines that need outside/inside zones.
 
-Saved to `pipelines/configs/store_boundary_zones.json`.
+Saved to `configs/store_boundary_zones.json` (path from `configs/paths.py`).
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "store_boundary_zones.json"
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import BOUNDARY_JSON as CONFIG_PATH  # noqa: E402
 
 
 def _as_poly(pts) -> np.ndarray | None:

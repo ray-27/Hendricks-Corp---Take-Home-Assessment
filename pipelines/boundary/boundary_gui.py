@@ -2,7 +2,7 @@
 """
 Store boundary GUI (outside / inside / entrance).
 
-This GUI writes only `pipelines/configs/store_boundary_zones.json`.
+This GUI writes only `configs/store_boundary_zones.json`.
 Shelf faces are handled separately by `pipelines/shelf_vector_interest/shelf_face_gui.py`.
 """
 
@@ -18,9 +18,11 @@ import numpy as np
 from PIL import Image, ImageTk
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from boundary.boundary_store import Boundary, load_boundary, save_boundary  # noqa: E402
+from configs.paths import BOUNDARY_JSON, ENTRANCE_VIDEO  # noqa: E402
 
 DISPLAY_W = 960
 
@@ -54,7 +56,7 @@ class BoundaryApp(ctk.CTk):
         ctk.CTkButton(bar, text="Undo point", width=100, command=self._undo).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Clear step", width=100, command=self._clear).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Save", width=90, command=self._save).pack(side="left", padx=12)
-        ctk.CTkLabel(bar, text=f"saving to: {Boundary_config_hint()}").pack(side="left", padx=12)
+        ctk.CTkLabel(bar, text=f"saving to: {BOUNDARY_JSON}").pack(side="left", padx=12)
 
         nav = ctk.CTkFrame(self)
         nav.pack(fill="x", padx=8, pady=(0, 6))
@@ -148,7 +150,7 @@ class BoundaryApp(ctk.CTk):
         ok, why = self.boundary.ready()
         save_boundary(self.video.name, self.boundary)
         extra = "" if ok else f"  (incomplete: {why})"
-        self.status.configure(text=f"Saved to pipelines/configs/store_boundary_zones.json{extra}")
+        self.status.configure(text=f"Saved to {BOUNDARY_JSON}{extra}")
 
     # ------------------------------------------------------------------ drawing
 
@@ -199,13 +201,9 @@ class BoundaryApp(ctk.CTk):
         self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
 
 
-def Boundary_config_hint() -> str:
-    return "pipelines/configs/store_boundary_zones.json"
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
+    ap.add_argument("--video", type=Path, default=ENTRANCE_VIDEO)
     args = ap.parse_args()
     if not args.video.exists():
         raise SystemExit(f"Video not found: {args.video}")

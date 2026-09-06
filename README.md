@@ -31,7 +31,7 @@ python3 pipelines/staff_interaction/staff_gui.py --video raw_videos/entrance.mp4
 python3 pipelines/shelf_vector_interest/shelf_face_gui.py --video raw_videos/interior.mp4
 ```
 
-Configs land in `pipelines/configs/`.
+Configs land in `configs/`.
 
 ---
 
@@ -76,3 +76,34 @@ python3 pipelines/shelf_vector_interest/shelf_vector_pipeline.py --video raw_vid
 ```
 
 Drop `--preview` to write files only. More detail is in `pipelines/README.md` and each pipeline's own README.
+
+---
+
+## Docker (CPU only)
+
+The image installs CPU-only PyTorch. GPU is not used even if you pass `--gpus`.
+
+```bash
+docker build -t hendricks-retail .
+
+mkdir -p outputs
+
+docker run --rm \
+  -v "$(pwd)/raw_videos:/app/raw_videos:ro" \
+  -v "$(pwd)/models:/app/models" \
+  -v "$(pwd)/outputs:/app/outputs" \
+  hendricks-retail
+```
+
+Pass `run_all.py` flags after the image name:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/raw_videos:/app/raw_videos:ro" \
+  -v "$(pwd)/models:/app/models" \
+  -v "$(pwd)/outputs:/app/outputs" \
+  hendricks-retail \
+  python3 run_all.py --skip-shelf
+```
+
+`raw_videos/` must contain `entrance.mp4` and `interior.mp4`. Mount `models/` read-write so YOLO can download `yolo11x-pose.pt` on first run if it is missing. Annotated videos and CSVs are written to `./outputs` on the host. Scene configs in `configs/` are already copied into the image.

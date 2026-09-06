@@ -1,7 +1,7 @@
 """Staff-marking config: a small ReID embedding gallery, enrolled once by
 clicking each staff member's body in `staff_gui.py`.
 
-Saved to `pipelines/configs/staff_marks.json`, keyed by video filename, e.g.:
+Saved to `configs/staff_marks.json`, keyed by video filename, e.g.:
 
     {
       "entrance.mp4": {
@@ -47,12 +47,17 @@ spatial context, or any other reasonable approach").
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "staff_marks.json"
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import STAFF_MARKS_JSON as CONFIG_PATH  # noqa: E402
 
 
 @dataclass

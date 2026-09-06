@@ -10,7 +10,7 @@ Per shelf face, in order:
   3. zone    click 3+ points: the polygon a customer must stand in to be
              eligible for this shelf's interest at all
 
-Writes `pipelines/configs/shelf_faces.json`, independent of every other
+Writes `configs/shelf_faces.json`, independent of every other
 boundary/shelf config file in this repo.
 
 Usage:
@@ -29,8 +29,10 @@ import numpy as np
 from PIL import Image, ImageTk
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from configs.paths import INTERIOR_VIDEO, SHELF_FACES_JSON  # noqa: E402
 from shelf_vector_interest.shelf_face_store import (  # noqa: E402
     ShelfFace,
     ShelfFaceLayout,
@@ -75,7 +77,7 @@ class ShelfFaceApp(ctk.CTk):
         ctk.CTkButton(bar, text="Undo point", width=100, command=self._undo).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Clear part", width=100, command=self._clear).pack(side="left", padx=4)
         ctk.CTkButton(bar, text="Save", width=90, command=self._save).pack(side="left", padx=12)
-        ctk.CTkLabel(bar, text="saving to: pipelines/configs/shelf_faces.json").pack(side="left", padx=12)
+        ctk.CTkLabel(bar, text=f"saving to: {SHELF_FACES_JSON}").pack(side="left", padx=12)
 
         face_bar = ctk.CTkFrame(self)
         face_bar.pack(fill="x", padx=8, pady=(0, 6))
@@ -236,7 +238,7 @@ class ShelfFaceApp(ctk.CTk):
         extra = "" if ok else f"  (incomplete: {why})"
         ready = len(self.layout.ready_faces())
         self.status.configure(
-            text=f"Saved to pipelines/configs/shelf_faces.json{extra}   faces ready={ready}/{len(self.layout.faces)}"
+            text=f"Saved to {SHELF_FACES_JSON}{extra}   faces ready={ready}/{len(self.layout.faces)}"
         )
 
     # ------------------------------------------------------------ drawing
@@ -287,7 +289,7 @@ class ShelfFaceApp(ctk.CTk):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "interior.mp4")
+    ap.add_argument("--video", type=Path, default=INTERIOR_VIDEO)
     args = ap.parse_args()
     if not args.video.exists():
         raise SystemExit(f"Video not found: {args.video}")

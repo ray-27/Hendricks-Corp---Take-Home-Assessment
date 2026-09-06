@@ -30,10 +30,9 @@ pipelines/
     shelf_vector_pipeline.py  <- runnable: per-shelf-face interest CSV/video
   staff_interaction/
     tracker.py                <- own IoU+ReID tracker
-    scoring.py                <- role (reid default / vlm opt-in) + interaction (rule default / vlm opt-in)
+    scoring.py                <- role (ReID-gallery cosine similarity) + interaction (proximity+facing rule)
     staff_store.py             <- ReID gallery dataclass + load/save
     staff_gui.py               <- GUI: click each staff member once to enrol their ReID embedding
-    vlm_judge.py               <- Qwen2-VL-2B-Instruct wrapper, only loaded if --role-method/--interaction-method vlm
     staff_interaction_pipeline.py <- runnable: per-staff interaction sessions CSV/video
 ```
 
@@ -55,7 +54,7 @@ Click:
   doorway/threshold. This becomes the concrete point every pipeline treats
   as "the storefront" when computing look-direction and approach distance.
   If skipped, pipelines fall back to the centroid of `inside`.
-This writes `pipelines/configs/store_boundary_zones.json`, keyed by video
+This writes `configs/store_boundary_zones.json`, keyed by video
 filename, e.g.:
 
 ```json
@@ -233,7 +232,7 @@ python3 pipelines/shelf_vector_interest/shelf_vector_pipeline.py --video raw_vid
 A second, independent take on the same per-shelf interest task, using
 explicit geometry instead of a per-frame distance heuristic: each shelf
 face is marked once with a fixed outward **normal** vector and a **zone**
-polygon (via `shelf_face_gui.py`, into `pipelines/configs/shelf_faces.json`).
+polygon (via `shelf_face_gui.py`, into `configs/shelf_faces.json`).
 A customer engages a face iff their foot point is inside its zone *and*
 their YOLO-pose-derived facing vector points back toward the shelf (within
 `--face-deg` of `-normal`). When someone stands where two shelves' zones
@@ -261,49 +260,43 @@ python3 pipelines/staff_interaction/staff_interaction_pipeline.py --video raw_vi
 ```
 
 Average number of customer interaction sessions per staff member, using
-YOLO pose + IoU/ReID tracking for identity. Two independent judgments,
-each with a default (non-VLM) and an opt-in VLM implementation -- see
-`scoring.py`'s module docstring for the full history of why the defaults
-ended up here:
+YOLO pose + IoU/ReID tracking for identity, and two rule/model-free
+judgments -- see `scoring.py`'s module docstring for the full reasoning:
 
-  - `--role-method reid` (default): is this track staff? Cosine similarity
-    between the track's running ReID embedding (already computed for
-    tracking) and a small gallery enrolled once via `staff_gui.py`.
-  - `--role-method vlm` (opt-in, `pipelines/staff_interaction/vlm_judge.py`):
-    a VLM asked "is this a staff apron?" per track crop. No setup step,
-    but slower and, on this footage, not more reliable than the enrolled
-    gallery -- prompt-tuning it to stop matching customers' bags/jackets
-    tended to also start rejecting real staff, and vice versa.
-  - `--interaction-method rule` (default): a weighted proximity +
-    mutual-facing score computed directly from the pose keypoints already
-    extracted for tracking -- no model call. See `rule_pair_cues` in
-    `scoring.py`.
-  - `--interaction-method vlm` (opt-in): a VLM asked "are these two people
-    interacting?" per pair, throttled by a cooldown while they stay close.
+  - Is this track staff? Cosine similarity between the track's running
+    ReID embedding (already computed for tracking) and a small gallery
+    enrolled once via `staff_gui.py`.
+  - Is this (staff, customer) pair actively interacting? A weighted
+    proximity + mutual-facing score computed directly from the pose
+    keypoints already extracted for tracking -- no model call. See
+    `rule_pair_cues` in `scoring.py`.
 
-Both role methods drive the same sticky majority-vote latch (a track that
+The role classifier drives a sticky majority-vote latch (a track that
 votes staff stays staff for as long as it remains in view, matching the
 brief's "same staff instance for as long as they remain within the camera
-view"). Both interaction methods drive the same open/gap/cooldown session
+view"). The interaction classifier drives an open/gap/cooldown session
 state machine: a pair opens a session after sustained engagement, closes
 after a gap (or an immediate force-close once they physically separate
-beyond `--near-bh`/`--far-bh`), `--min-event-s` drops sessions that opened
-and immediately closed, and `--cooldown-s` after a close is what makes
+beyond `--near-bh`), `--min-event-s` drops sessions that opened and
+immediately closed, and `--cooldown-s` after a close is what makes
 "customer leaves and later returns to the same staff member" count as a
 *separate* session per the brief.
 
-**Why ReID-gallery + rule-based scoring are the defaults, not the VLM.**
-Two rounds of VLM prompt engineering on the role question each fixed one
-failure mode by making the other worse: a stricter "is this an apron"
-prompt that stopped matching customers' bags/jackets also started
-rejecting real staff whose uniform didn't look exactly like the
-description, and a looser prompt did the reverse -- there wasn't a single
-wording that was precise for *this specific footage's* uniform without
-either false-positive or false-negative failures. The interaction VLM had
-a mirror problem: a real exchange (e.g. staff bent down talking to a
-seated customer) sometimes read as "not interacting" because the framing
-didn't match the VLM's idea of "actively interacting" in general. Both
-were also the slowest part of the pipeline by a wide margin.
+**Why ReID-gallery + rule-based scoring, not a VLM.** A VLM-based version
+of each judgment (asking "is this a staff apron?" / "are these two people
+interacting?" per crop) was tried first and dropped: two rounds of prompt
+engineering on the role question each fixed one failure mode by making the
+other worse -- a stricter "is this an apron" prompt that stopped matching
+customers' bags/jackets also started rejecting real staff whose uniform
+didn't look exactly like the description, and a looser prompt did the
+reverse -- there wasn't a single wording that was precise for *this
+specific footage's* uniform without either false-positive or
+false-negative failures. The interaction VLM had a mirror problem: a real
+exchange (e.g. staff bent down talking to a seated customer) sometimes
+read as "not interacting" because the framing didn't match the VLM's idea
+of "actively interacting" in general. Both were also the slowest part of
+the pipeline by a wide margin, and both required a large model download
+that the ReID/rule approach doesn't need.
 
 Trading a few seconds of one-time manual enrolment (`staff_gui.py`) for a
 deterministic classifier sidesteps this: role becomes "does this track's

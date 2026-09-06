@@ -31,11 +31,25 @@ Anti-double-count state machine (per track)
 
 from __future__ import annotations
 
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import (  # noqa: E402
+    SHELF_COOLDOWN_S,
+    SHELF_ENGAGE_S,
+    SHELF_FACE_DEG,
+    SHELF_GAP_CLOSE_S,
+    SHELF_MIN_EVENT_S,
+    SHELF_MIN_HITS,
+)
 from shelf_vector_interest.shelf_face_store import ShelfFace
 
 
@@ -54,12 +68,12 @@ def _angle_deg(a: np.ndarray, b: np.ndarray) -> float:
 
 @dataclass
 class VectorParams:
-    face_deg: float = 55.0  # max angle between person's facing vec and -normal
-    engage_s: float = 1.2  # sustained engagement required to open an event
-    gap_close_s: float = 1.0  # tolerated disengaged gap before closing
-    cooldown_s: float = 5.0  # per (track, shelf) cooldown after a close
-    min_event_s: float = 0.8  # minimum duration for a close to count
-    min_hits: int = 4  # ignore very fresh tracks (a couple of frames old)
+    face_deg: float = SHELF_FACE_DEG
+    engage_s: float = SHELF_ENGAGE_S
+    gap_close_s: float = SHELF_GAP_CLOSE_S
+    cooldown_s: float = SHELF_COOLDOWN_S
+    min_event_s: float = SHELF_MIN_EVENT_S
+    min_hits: int = SHELF_MIN_HITS
 
 
 @dataclass

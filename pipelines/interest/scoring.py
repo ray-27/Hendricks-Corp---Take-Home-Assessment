@@ -42,37 +42,64 @@ scale changes across the frame far better than raw pixels do.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import (  # noqa: E402
+    INTEREST_APPROACH_REF_BH,
+    INTEREST_ATTEND_DEG,
+    INTEREST_EMA,
+    INTEREST_ENTERED_BACKFILL_SCORE,
+    INTEREST_ENTERED_DWELL_S,
+    INTEREST_MIN_HITS,
+    INTEREST_MOTION_TREND_REF,
+    INTEREST_SCORE_THRESHOLD,
+    INTEREST_SLOW_BH,
+    INTEREST_SPEED_WINDOW_S,
+    INTEREST_SUSTAIN_S,
+    INTEREST_TURN_DEG,
+    INTEREST_TURN_WINDOW_S,
+    INTEREST_WALK_BH,
+    INTEREST_W_APPROACH,
+    INTEREST_W_ORIENT,
+    INTEREST_W_SLOW,
+    INTEREST_W_TURN,
+)
 
 
 @dataclass
 class InterestParams:
-    speed_window_s: float = 0.45  # window for foot-point speed / approach
-    turn_window_s: float = 0.45  # window for the "turning toward" delta-angle cue
+    speed_window_s: float = INTEREST_SPEED_WINDOW_S
+    turn_window_s: float = INTEREST_TURN_WINDOW_S
 
-    attend_deg: float = 68.0  # attention cone that counts as "looking at the shop"
-    turn_deg: float = 9.0  # angle swing toward the shop, over turn_window_s, that saturates cue 2
+    attend_deg: float = INTEREST_ATTEND_DEG
+    turn_deg: float = INTEREST_TURN_DEG
 
-    walk_bh: float = 1.55  # unremarkable walking pace, body-heights/s -> slowdown cue = 0
-    slow_bh: float = 0.55  # at/below this the speed-based half of the slowdown cue saturates
-    motion_trend_ref: float = 0.035  # SNN energy drop (per ~0.5s) that saturates the trend half
+    walk_bh: float = INTEREST_WALK_BH
+    slow_bh: float = INTEREST_SLOW_BH
+    motion_trend_ref: float = INTEREST_MOTION_TREND_REF
 
-    approach_ref_bh: float = 0.25  # closing speed (body-heights/s) that saturates cue 4
+    approach_ref_bh: float = INTEREST_APPROACH_REF_BH
 
-    w_orient: float = 0.32
-    w_turn: float = 0.18
-    w_slow: float = 0.20
-    w_approach: float = 0.30
+    w_orient: float = INTEREST_W_ORIENT
+    w_turn: float = INTEREST_W_TURN
+    w_slow: float = INTEREST_W_SLOW
+    w_approach: float = INTEREST_W_APPROACH
 
-    score_threshold: float = 0.47
-    sustain_s: float = 0.45
-    ema: float = 0.45
+    score_threshold: float = INTEREST_SCORE_THRESHOLD
+    sustain_s: float = INTEREST_SUSTAIN_S
+    ema: float = INTEREST_EMA
 
-    entered_dwell_s: float = 0.25  # continuous time inside the shop polygon = "entered"
-    entered_backfill_score: float = 0.38  # entered + meaningful outside signal => mark interested
-    min_hits: int = 4  # ignore flicker detections when counting people
+    entered_dwell_s: float = INTEREST_ENTERED_DWELL_S
+    entered_backfill_score: float = INTEREST_ENTERED_BACKFILL_SCORE
+    min_hits: int = INTEREST_MIN_HITS
 
 
 @dataclass

@@ -25,9 +25,11 @@ import cv2
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent
-OUTPUT_ROOT = ROOT / "outputs"
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
+
+from configs.paths import ENTRANCE_VIDEO, FRAME_STRIDE, INTERIOR_VIDEO, OUTPUT_DIR, POSE_IMGSZ  # noqa: E402
 
 from analytics.pose import PoseDetector  # noqa: E402
 from boundary.boundary_store import load_boundary  # noqa: E402
@@ -355,15 +357,15 @@ def run_shelf_vector(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Run interest+staff (one video) then shelf-vector interest.")
-    ap.add_argument("--entrance-video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
-    ap.add_argument("--interior-video", type=Path, default=ROOT / "raw_videos" / "interior.mp4")
-    ap.add_argument("--out-dir", type=Path, default=OUTPUT_ROOT, help="root output folder: videos here, CSVs in csv/")
+    ap.add_argument("--entrance-video", type=Path, default=ENTRANCE_VIDEO)
+    ap.add_argument("--interior-video", type=Path, default=INTERIOR_VIDEO)
+    ap.add_argument("--out-dir", type=Path, default=OUTPUT_DIR, help="root output folder: videos here, CSVs in csv/")
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--no-video", action="store_true")
-    ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--stride", type=int, default=FRAME_STRIDE)
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--pose-weights", type=str, default=None)
-    ap.add_argument("--pose-imgsz", type=int, default=1280)
+    ap.add_argument("--pose-imgsz", type=int, default=POSE_IMGSZ)
     ap.add_argument("--skip-entrance", action="store_true", help="only run shelf-vector")
     ap.add_argument("--skip-shelf", action="store_true", help="only run combined entrance")
     args = ap.parse_args()
@@ -397,5 +399,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-#ssh -i "/Users/rajveeryadav/Documents/AWS/Private_keys/deep_training.pem" ubuntu@ec2-3-236-247-61.compute-1.amazonaws.com

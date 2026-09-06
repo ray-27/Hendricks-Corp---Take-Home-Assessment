@@ -70,7 +70,7 @@ staying stable when they glance rather than fully turn.
    For each shelf: click the two edge points, click once on the customer
    side to set the outward normal (click again to flip it), then click 3+
    points for the interest zone. Add more faces with **+ Add face**. Save
-   writes `pipelines/configs/shelf_faces.json`, independent of every other
+   writes `configs/shelf_faces.json`, independent of every other
    config file in this repo.
 
 2. Run the pipeline:

@@ -7,7 +7,7 @@ distance heuristic:
 
   - each shelf face has a fixed outward `normal` vector and a `zone`
     polygon (marked once with `shelf_face_gui.py`, stored in
-    `pipelines/configs/shelf_faces.json`)
+    `configs/shelf_faces.json`)
   - each person's facing vector comes from YOLO pose keypoints (head
     vector blended with torso orientation)
   - a person "engages" a face iff their foot point is inside its zone AND
@@ -18,8 +18,7 @@ distance heuristic:
     if it lasted `--min-event-s`; after closing, the same (person, shelf)
     pair is on `--cooldown-s` cooldown before a new event can open
 
-This pipeline is self-contained: it does not import from
-`pipelines/shelf_interest` (see `tracker.py` in this folder for why).
+This pipeline is self-contained.
 
 Usage:
     python3 pipelines/shelf_vector_interest/shelf_vector_pipeline.py --video raw_videos/interior.mp4 --preview
@@ -37,11 +36,29 @@ import numpy as np
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_ROOT = ROOT / "outputs"
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from analytics.pose import L_EAR, L_SHO, NOSE, R_EAR, R_SHO, PoseDetector  # noqa: E402
+from configs.paths import (  # noqa: E402
+    FRAME_STRIDE,
+    INTERIOR_VIDEO,
+    INTERIOR_VIDEO_OUT,
+    POSE_IMGSZ,
+    REID_RELINK,
+    REID_THRESHOLD,
+    REID_WEIGHT,
+    SHELF_COOLDOWN_S,
+    SHELF_CSV_DIR,
+    SHELF_ENGAGE_S,
+    SHELF_FACE_DEG,
+    SHELF_GAP_CLOSE_S,
+    SHELF_MAX_MISSED,
+    SHELF_MIN_EVENT_S,
+    SHELF_MIN_HITS,
+    SHELF_RETIRED_TTL_FRAMES,
+)
 from reid.embedder import ReIDEmbedder  # noqa: E402
 
 from shelf_vector_interest.scoring import (  # noqa: E402
@@ -125,17 +142,17 @@ def write_outputs(out_dir: Path, faces, events: list, totals: dict) -> list[Path
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "interior.mp4")
+    ap.add_argument("--video", type=Path, default=INTERIOR_VIDEO)
     ap.add_argument(
         "--out-dir",
         type=Path,
-        default=OUTPUT_ROOT / "csv" / "shelf_vector_interest",
+        default=SHELF_CSV_DIR,
         help="CSV output folder",
     )
     ap.add_argument(
         "--video-out",
         type=Path,
-        default=OUTPUT_ROOT / "interior_annotated.mp4",
+        default=INTERIOR_VIDEO_OUT,
         help="annotated mp4 path",
     )
     ap.add_argument("--preview", action="store_true")
@@ -145,26 +162,26 @@ def main() -> None:
         help="draw each person's facing vector (cyan) and the shelf's expected facing direction (magenta)",
     )
     ap.add_argument("--no-video", action="store_true")
-    ap.add_argument("--stride", type=int, default=2)
+    ap.add_argument("--stride", type=int, default=FRAME_STRIDE)
     ap.add_argument("--max-frames", type=int, default=0)
 
     ap.add_argument("--pose-weights", type=str, default=None)
-    ap.add_argument("--pose-imgsz", type=int, default=1280)
+    ap.add_argument("--pose-imgsz", type=int, default=POSE_IMGSZ)
 
-    ap.add_argument("--face-deg", type=float, default=55.0, help="max angle between facing vec and -normal")
-    ap.add_argument("--engage-s", type=float, default=1.2, help="sustained engagement to open an event")
-    ap.add_argument("--gap-close-s", type=float, default=1.0, help="tolerated disengaged gap before closing")
-    ap.add_argument("--cooldown-s", type=float, default=5.0, help="per (person, shelf) cooldown after close")
-    ap.add_argument("--min-event-s", type=float, default=0.8, help="minimum duration for a close to count")
-    ap.add_argument("--min-hits", type=int, default=4)
+    ap.add_argument("--face-deg", type=float, default=SHELF_FACE_DEG, help="max angle between facing vec and -normal")
+    ap.add_argument("--engage-s", type=float, default=SHELF_ENGAGE_S, help="sustained engagement to open an event")
+    ap.add_argument("--gap-close-s", type=float, default=SHELF_GAP_CLOSE_S, help="tolerated disengaged gap before closing")
+    ap.add_argument("--cooldown-s", type=float, default=SHELF_COOLDOWN_S, help="per (person, shelf) cooldown after close")
+    ap.add_argument("--min-event-s", type=float, default=SHELF_MIN_EVENT_S, help="minimum duration for a close to count")
+    ap.add_argument("--min-hits", type=int, default=SHELF_MIN_HITS)
 
     ap.add_argument("--no-reid", action="store_true", help="disable ReID; IoU-only tracking")
     ap.add_argument("--reid-model", type=Path, default=None)
-    ap.add_argument("--reid-threshold", type=float, default=0.52)
-    ap.add_argument("--reid-relink", type=float, default=0.58)
-    ap.add_argument("--reid-weight", type=float, default=0.65)
-    ap.add_argument("--max-missed", type=int, default=90)
-    ap.add_argument("--retired-ttl-frames", type=int, default=450)
+    ap.add_argument("--reid-threshold", type=float, default=REID_THRESHOLD)
+    ap.add_argument("--reid-relink", type=float, default=REID_RELINK)
+    ap.add_argument("--reid-weight", type=float, default=REID_WEIGHT)
+    ap.add_argument("--max-missed", type=int, default=SHELF_MAX_MISSED)
+    ap.add_argument("--retired-ttl-frames", type=int, default=SHELF_RETIRED_TTL_FRAMES)
     args = ap.parse_args()
 
     if not args.video.exists():

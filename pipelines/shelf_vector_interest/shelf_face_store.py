@@ -1,6 +1,6 @@
 """Shelf-face geometry: an explicit outward normal vector + interest zone.
 
-Saved to `pipelines/configs/shelf_faces.json`.
+Saved to `configs/shelf_faces.json` (path from `configs/paths.py`).
 
 Why this shape, instead of a plain shelf polygon
 --------------------------------------------------
@@ -37,13 +37,18 @@ calls out.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "shelf_faces.json"
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import SHELF_FACES_JSON as CONFIG_PATH  # noqa: E402
 
 FACE_COLORS = [
     (70, 70, 255),

@@ -18,7 +18,7 @@ Outside-walkway store-interest pipeline using only YOLO pose + SNN motion.
 
 - Video file, e.g. `raw_videos/entrance.mp4`
 - Boundary config from `pipelines/boundary/boundary_gui.py`:
-  - `pipelines/configs/store_boundary_zones.json`
+  - `configs/store_boundary_zones.json`
 
 ## Run
 

@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import urllib.request
 from pathlib import Path
+import sys
 
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import REID_ONNX_PATH  # noqa: E402
 
 NGC_ONNX_URL = (
     "https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/"
@@ -28,8 +35,7 @@ INPUT_H, INPUT_W = 256, 128
 
 
 def default_model_path() -> Path:
-    root = Path(__file__).resolve().parents[2]
-    return root / "models" / "resnet50_market1501_aicity156.onnx"
+    return REID_ONNX_PATH
 
 
 def ensure_model(path: Path | None = None) -> Path:

@@ -12,7 +12,7 @@ Interest pipeline: store-interest detection for the walking area.
 This pipeline is fully independent of the ReID pipeline and of the original
 `run_entrance_analytics.py` at the project root: it only needs
   - the boundary file produced by `pipelines/boundary/boundary_gui.py`
-    (`pipelines/configs/store_boundary_zones.json`)
+    (`configs/store_boundary_zones.json`)
   - the YOLO-pose weights (`yolo11x-pose.pt` by default; Ultralytics downloads on first run)
 It does not read or write any ReID state, and can be run on its own, on any
 video, as long as that video's boundary has been drawn once.
@@ -37,11 +37,22 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_ROOT = ROOT / "outputs"
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from analytics.pose import PoseDetector  # noqa: E402
+from configs.paths import (  # noqa: E402
+    ENTRANCE_VIDEO,
+    FRAME_STRIDE,
+    INTEREST_CSV_DIR,
+    INTEREST_VIDEO_OUT,
+    POSE_IMGSZ,
+    SNN_DIFF_THRESH,
+    SNN_GRID,
+    SNN_TAU,
+    SNN_VTH,
+)
 from boundary.boundary_store import load_boundary  # noqa: E402
 from interest.scoring import InterestParams, score_track, update_track_state  # noqa: E402
 from interest.snn_motion import SNNMotionTracker  # noqa: E402
@@ -211,20 +222,20 @@ def write_outputs(out_dir: Path, counts: dict, records: dict) -> list[Path]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--video", type=Path, default=ROOT / "raw_videos" / "entrance.mp4")
-    ap.add_argument("--out-dir", type=Path, default=OUTPUT_ROOT / "csv" / "interest", help="CSV output folder")
-    ap.add_argument("--video-out", type=Path, default=OUTPUT_ROOT / "interest_annotated.mp4", help="annotated mp4 path")
-    ap.add_argument("--stride", type=int, default=2, help="process every Nth frame")
+    ap.add_argument("--video", type=Path, default=ENTRANCE_VIDEO)
+    ap.add_argument("--out-dir", type=Path, default=INTEREST_CSV_DIR, help="CSV output folder")
+    ap.add_argument("--video-out", type=Path, default=INTEREST_VIDEO_OUT, help="annotated mp4 path")
+    ap.add_argument("--stride", type=int, default=FRAME_STRIDE, help="process every Nth frame")
     ap.add_argument("--max-frames", type=int, default=0, help="0 = whole video")
     ap.add_argument("--preview", action="store_true", help="show a window while running")
     ap.add_argument("--no-video", action="store_true", help="CSV only, skip encoding")
     ap.add_argument("--dump-cues", action="store_true", help="per-frame cue CSV for tuning")
     ap.add_argument("--pose-weights", type=str, default=None, help="YOLO-pose checkpoint (default: yolo11x-pose.pt)")
-    ap.add_argument("--pose-imgsz", type=int, default=1280)
-    ap.add_argument("--snn-grid", type=int, nargs=2, default=(14, 14), metavar=("H", "W"))
-    ap.add_argument("--snn-diff-thresh", type=float, default=10.0)
-    ap.add_argument("--snn-vth", type=float, default=0.55)
-    ap.add_argument("--snn-tau", type=float, default=3.0)
+    ap.add_argument("--pose-imgsz", type=int, default=POSE_IMGSZ)
+    ap.add_argument("--snn-grid", type=int, nargs=2, default=SNN_GRID, metavar=("H", "W"))
+    ap.add_argument("--snn-diff-thresh", type=float, default=SNN_DIFF_THRESH)
+    ap.add_argument("--snn-vth", type=float, default=SNN_VTH)
+    ap.add_argument("--snn-tau", type=float, default=SNN_TAU)
     args = ap.parse_args()
 
     if not args.video.exists():

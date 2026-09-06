@@ -32,17 +32,31 @@ Output per track per frame:
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import cv2
 import numpy as np
 
-DEFAULT_GRID = (14, 14)  # (rows, cols) neurons per person crop
-TAU = 3.0  # membrane time constant, in frames (same default as video_snn.py)
-V_TH = 0.55  # firing threshold
-DIFF_THRESH = 10.0  # brightness delta (0-255) needed to register an event
-TREND_WINDOW = 15  # frames compared "recent vs older" for the trend signal
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from configs.paths import (  # noqa: E402
+    SNN_DIFF_THRESH,
+    SNN_GRID,
+    SNN_TAU,
+    SNN_TREND_WINDOW,
+    SNN_VTH,
+)
+
+DEFAULT_GRID = SNN_GRID
+TAU = SNN_TAU
+V_TH = SNN_VTH
+DIFF_THRESH = SNN_DIFF_THRESH
+TREND_WINDOW = SNN_TREND_WINDOW
 
 
 @dataclass
