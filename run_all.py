@@ -6,7 +6,7 @@ Run the project pipelines together.
    (pose runs once; each task keeps its own tracker/scoring).
 2. Interior clip — shelf-vector interest, after the entrance pass.
 
-Does not run `shelf_interest` (polygon/distance). Use `shelf_vector_pipeline.py`.
+Does not run the old polygon/distance shelf pipeline. Interior uses `shelf_vector_pipeline.py`.
 
     python3 run_all.py
     python3 run_all.py --preview
@@ -323,7 +323,6 @@ def run_shelf_vector(
     max_frames: int,
     pose_weights: str | None,
     pose_imgsz: int,
-    show_person_vector: bool,
 ) -> None:
     cmd = [
         sys.executable,
@@ -338,6 +337,7 @@ def run_shelf_vector(
         str(stride),
         "--pose-imgsz",
         str(pose_imgsz),
+        "--show-person-vector",
     ]
     if pose_weights:
         cmd += ["--pose-weights", pose_weights]
@@ -347,8 +347,6 @@ def run_shelf_vector(
         cmd.append("--no-video")
     if max_frames:
         cmd += ["--max-frames", str(max_frames)]
-    if show_person_vector:
-        cmd.append("--show-person-vector")
     print(f"\n=== Interior (shelf vector interest) ===\n{' '.join(cmd)}")
     rc = subprocess.call(cmd)
     if rc:
@@ -366,7 +364,6 @@ def main() -> None:
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--pose-weights", type=str, default=None)
     ap.add_argument("--pose-imgsz", type=int, default=1280)
-    ap.add_argument("--show-person-vector", action="store_true", help="forwarded to shelf-vector pipeline")
     ap.add_argument("--skip-entrance", action="store_true", help="only run shelf-vector")
     ap.add_argument("--skip-shelf", action="store_true", help="only run combined entrance")
     args = ap.parse_args()
@@ -395,11 +392,10 @@ def main() -> None:
         max_frames=args.max_frames,
         pose_weights=args.pose_weights,
         pose_imgsz=args.pose_imgsz,
-        show_person_vector=args.show_person_vector,
     )
 
 
 if __name__ == "__main__":
     main()
 
-#ssh -i "/Users/rajveeryadav/Documents/AWS/Private_keys/aws_key.pem" ubuntu@ec2-15-206-147-250.ap-south-1.compute.amazonaws.com
+#ssh -i "/Users/rajveeryadav/Documents/AWS/Private_keys/deep_training.pem" ubuntu@ec2-3-236-247-61.compute-1.amazonaws.com

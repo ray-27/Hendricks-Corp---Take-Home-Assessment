@@ -10,45 +10,31 @@ are only ever combined afterwards, by joining their output CSVs (e.g. on
 
 ```
 pipelines/
-    configs/
+  configs/
     store_boundary_zones.json <- written by boundary_gui.py (store outside/inside/entrance)
-    shelf_zones.json          <- written by shelf_gui.py (named shelf polygons/front-lines)
     shelf_faces.json          <- written by shelf_face_gui.py (shelf edge + outward normal + customer zone)
-    staff_marks.json          <- written by staff_gui.py: a small ReID embedding gallery for
-                                  the default (non-VLM) staff role classifier -- see section 5
+    staff_marks.json          <- written by staff_gui.py (ReID gallery for staff role)
   boundary/
     boundary_store.py         <- store boundary dataclass + load/save
     boundary_gui.py           <- GUI for outside/inside/entrance
-    shelf_store.py            <- shelf layout dataclass + load/save
-    shelf_gui.py              <- GUI for shelf polygons/front-lines
   interest/
     tracker.py                <- plain IoU tracker (no ReID — see below)
     snn_motion.py             <- per-person spiking (LIF) motion sensor
     scoring.py                <- the interest criteria + weighted score
     interest_pipeline.py      <- runnable: YOLO-pose + SNN motion -> interest CSV/video
-  shelf_interest/
-    tracker.py                <- IoU tracker for interior shelf interactions
-    scoring.py                <- per-shelf assignment + sustained episode logic
-    shelf_interest_pipeline.py <- runnable: per-shelf interest CSV/video
   shelf_vector_interest/
-    tracker.py                <- own IoU+ReID tracker (self-contained, not shared with shelf_interest)
+    tracker.py                <- own IoU+ReID tracker
     scoring.py                <- zone-gate + fixed-normal facing check + open/close state machine
     shelf_face_store.py       <- shelf-face dataclass (edge/normal/zone) + load/save
     shelf_face_gui.py         <- GUI for edge -> normal -> customer zone, per shelf face
     shelf_vector_pipeline.py  <- runnable: per-shelf-face interest CSV/video
   staff_interaction/
-    tracker.py                <- own IoU+ReID tracker (self-contained, not shared with other pipelines)
+    tracker.py                <- own IoU+ReID tracker
     scoring.py                <- role (reid default / vlm opt-in) + interaction (rule default / vlm opt-in)
-                                  + shared open/gap/cooldown session state machine
-    staff_store.py             <- ReID gallery dataclass + load/save (pipelines/configs/staff_marks.json)
+    staff_store.py             <- ReID gallery dataclass + load/save
     staff_gui.py               <- GUI: click each staff member once to enrol their ReID embedding
     vlm_judge.py               <- Qwen2-VL-2B-Instruct wrapper, only loaded if --role-method/--interaction-method vlm
     staff_interaction_pipeline.py <- runnable: per-staff interaction sessions CSV/video
-  outputs/
-    interest/                 <- this pipeline's own outputs, namespaced
-    shelf_interest/           <- per-shelf interest outputs
-    shelf_vector_interest/    <- shelf-vector pipeline's own outputs
-    staff_interaction/        <- staff-customer interaction outputs
 ```
 
 ## 1. Mark the boundary (run once per video)
@@ -86,17 +72,6 @@ Every other pipeline that needs store geometry reads this file. Re-running
 the GUI and re-saving simply overwrites the entry for
 that video; nothing downstream needs to change.
 
-### Shelf geometry (separate file)
-
-```
-python3 pipelines/boundary/shelf_gui.py --video raw_videos/interior.mp4
-```
-
-Click one polygon per shelf (3+ points), and optionally draw a 2-point
-customer-facing front-line per shelf.
-
-This writes `pipelines/configs/shelf_zones.json`, keyed by video filename.
-
 ## 2. Interest pipeline (SNN motion + YOLO posture, no ReID)
 
 ```
@@ -124,9 +99,7 @@ frame -> YOLOv8n-pose (per-person box + 17 keypoints)
 
 ### Why an SNN for the movement/speed cue
 
-`snn_motion.py` reuses the same DVS-simulation + LIF-neuron idea already
-prototyped at the project root in `video_snn.py`, but scopes it from "one
-neuron per pixel of the whole frame" down to a small (10x10) neuron grid
+`snn_motion.py` uses a DVS-style frame-difference + LIF neuron grid
 over *one tracked person's crop*, so every track gets its own independent
 membrane state:
 
@@ -198,8 +171,7 @@ this pipeline has no floor-plane calibration.
 | `min_hits` | 5 | tracks with fewer detections than this are treated as flicker, not counted |
 
 Tune these in `InterestParams` (or pass your own instance into
-`interest_pipeline.py`) the same way the constants in the original
-`src/analytics/events.py` were tuned against labelled clips.
+`interest_pipeline.py`).
 
 ### Fixes: outside-only tracking, and not re-flagging a leaving customer
 
@@ -245,32 +217,13 @@ to `PoseDetector()` to override.
 
 ### Outputs
 
-Written to `pipelines/outputs/interest/`:
+Written to project-root `outputs/csv/interest/` (video at `outputs/interest_annotated.mp4` when run alone):
 - `interest_summary.csv` — Total Interested / Interested Entered / Interested Passed By
 - `interest_track_log.csv` — per-track_id interest/entered decisions
 - `interest_annotated.mp4` — boxes, interest bar, motion energy/trend, HUD
 - `interest_cues.csv` (with `--dump-cues`) — per-frame cue breakdown for tuning
 
-## 3. Shelf-interest pipeline (interior, per-shelf episodes)
-
-```
-python3 pipelines/shelf_interest/shelf_interest_pipeline.py --video raw_videos/interior.mp4 --preview
-```
-
-This pipeline uses YOLO pose + shelf geometry (from `shelf_gui.py`) with
-optional ReID continuity, not a VLM. It assigns each interior customer to the
-most likely shelf using orientation + proximity, applies hysteresis to avoid
-rapid shelf flips, and opens/closes interaction episodes using sustain/gap
-timing so a continuous interaction is counted once and a later return is
-counted as a new event.
-
-Written to `pipelines/outputs/shelf_interest/`:
-- `shelf_interest_summary.csv` — cumulative events per shelf
-- `shelf_interest_events.csv` — start/end/duration for each shelf event
-- `shelf_interest_track_log.csv` — per-track compact event counts
-- `shelf_interest_annotated.mp4` — shelf association, event duration, shelf totals
-
-## 4. Shelf-vector interest pipeline (interior, explicit shelf-face geometry)
+## 3. Shelf-vector interest pipeline (interior, explicit shelf-face geometry)
 
 ```
 python3 pipelines/shelf_vector_interest/shelf_face_gui.py --video raw_videos/interior.mp4
@@ -288,18 +241,16 @@ overlap, whichever face's normal is most opposed to their facing vector
 wins — resolving "which shelf are they looking at" directly from the
 geometry, without a separate distance-based tie-break.
 
-Self-contained: has its own `tracker.py` (IoU + optional ReID) and does not
-import from `shelf_interest`. See `pipelines/shelf_vector_interest/README.md`
-for the full design rationale, anti-double-counting rules, and pose-model
-recommendations (YOLOv8x-pose/YOLO11-pose as a drop-in upgrade, RTMPose as
-a higher-effort option for oblique/occluded views).
+Self-contained: has its own `tracker.py` (IoU + optional ReID). See
+`pipelines/shelf_vector_interest/README.md` for the full design rationale,
+anti-double-counting rules, and pose-model recommendations.
 
-Written to `pipelines/outputs/shelf_vector_interest/`:
+Written to project-root `outputs/` (`interior_annotated.mp4` and `csv/shelf_vector_interest/`):
 - `shelf_vector_summary.csv` — cumulative events per shelf face
 - `shelf_vector_events.csv` — start/end/duration for each shelf-face event
 - `shelf_vector_annotated.mp4` — face edge/normal/zone overlay, live duration, per-shelf totals
 
-## 5. Staff-customer interaction pipeline (Task 3, entrance.mp4)
+## 4. Staff-customer interaction pipeline (Task 3, entrance.mp4)
 
 ```
 # one-time setup: click each staff member once (a couple of clicks per
@@ -364,7 +315,7 @@ computed for tracking, tunable via named thresholds (`--near-bh`,
 Neither approach is strictly better in every case, which is why both stay
 in the codebase, selectable per run.
 
-Written to `pipelines/outputs/staff_interaction/`:
+Written to project-root `outputs/csv/staff_interaction/` (video at `outputs/staff_interaction_annotated.mp4` when run alone):
 - `staff_interaction_summary.csv` — per staff instance: sessions, first/last
   frame, plus `staff_count` / `total_sessions` / `average_sessions_per_staff`
   (every detected staff instance is included, even at 0 sessions)
@@ -376,6 +327,6 @@ Written to `pipelines/outputs/staff_interaction/`:
 
 Each new pipeline (e.g. dwell-time, ReID-based re-entry) should follow the
 same shape: its own subfolder under `pipelines/`, reading geometry configs
-(`store_boundary_zones.json`, `shelf_zones.json`, `shelf_faces.json`) as
-needed, writing to its own `pipelines/outputs/<name>/`, and staying free of
+(`store_boundary_zones.json`, `shelf_faces.json`, `staff_marks.json`) as
+needed, writing to project-root `outputs/`, and staying free of
 imports from sibling pipelines. Combine results after the fact.

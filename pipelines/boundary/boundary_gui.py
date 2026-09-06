@@ -3,7 +3,7 @@
 Store boundary GUI (outside / inside / entrance).
 
 This GUI writes only `pipelines/configs/store_boundary_zones.json`.
-Shelves are handled separately by `shelf_gui.py`.
+Shelf faces are handled separately by `pipelines/shelf_vector_interest/shelf_face_gui.py`.
 """
 
 from __future__ import annotations

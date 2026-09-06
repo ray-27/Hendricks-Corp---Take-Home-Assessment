@@ -1,20 +1,8 @@
 # Shelf-vector interest pipeline
 
-A second, independent take on the per-shelf customer-interest task, using
-**explicit geometry** instead of a per-frame distance heuristic. Does not
-modify or import from `pipelines/shelf_interest`; the two pipelines can be
-run and compared side by side.
-
-## The idea
-
-`pipelines/shelf_interest` decides "is this person looking at the shelf" by
-finding the nearest point on the shelf polygon to the person's current foot
-position, every frame. That target point slides as the person walks, so
-the facing-angle check inherits some noise from wherever their feet happen
-to be.
-
-This pipeline instead asks you to mark, **once per shelf**, the geometry a
-human reviewer would actually use:
+Per-shelf customer interest using **explicit geometry**: a fixed outward
+normal per shelf face and a hard customer-zone polygon, plus YOLO-pose
+facing direction.
 
 - **`normal`** — a fixed unit vector, perpendicular to the shelf's front
   edge, pointing outward into the area customers stand in. This is the
@@ -37,7 +25,7 @@ the geometry for free instead of needing a separate rule.
 
 ## Anti-double-counting
 
-Same three-knob approach as `shelf_interest`, tuned via CLI:
+Time gates, tuned via CLI:
 
 - `--engage-s` (default 1.2s): consecutive engaged frames required before
   an event **opens**.
@@ -112,18 +100,5 @@ staying stable when they glance rather than fully turn.
 | `--min-event-s` | 0.8 | minimum duration for a close to be counted |
 | `--cooldown-s` | 5.0 | per (person, shelf) cooldown after a close |
 | `--pose-weights` / `--pose-imgsz` | ultralytics default / 1280 | pose model + inference size |
-| `--reid-model`, `--reid-threshold`, `--reid-relink`, `--reid-weight`, `--max-missed`, `--retired-ttl-frames` | see `--help` | identity persistence tuning (own tracker in `tracker.py`, mirrors `shelf_interest`'s approach) |
+| `--reid-model`, `--reid-threshold`, `--reid-relink`, `--reid-weight`, `--max-missed`, `--retired-ttl-frames` | see `--help` | identity persistence tuning (own tracker in `tracker.py`) |
 | `--no-reid` | off | IoU-only tracking, no appearance embeddings |
-
-## How this compares to `shelf_interest`
-
-| | `shelf_interest` | `shelf_vector_interest` (this pipeline) |
-|---|---|---|
-| Shelf geometry | polygon + optional front-line | fixed edge + outward normal + explicit customer zone |
-| "Close enough" | bounding-box-height-relative distance threshold | hard zone-polygon membership |
-| "Facing" | angle to nearest point on shelf polygon (moves with the person) | angle to a fixed per-shelf normal vector |
-| Between two shelves | resolved by distance + orientation score | resolved by whichever normal is most opposed to the person's facing vector |
-| Config file | `shelf_zones.json` | `shelf_faces.json` |
-
-Both are independent and can be run on the same video to compare event
-counts; neither imports from the other.

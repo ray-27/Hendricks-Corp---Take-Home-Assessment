@@ -13,7 +13,6 @@ import cv2
 import numpy as np
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "store_boundary_zones.json"
-OLD_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "boundary_zones.json"
 
 
 def _as_poly(pts) -> np.ndarray | None:
@@ -85,10 +84,9 @@ class Boundary:
 
 
 def load_boundary(video_name: str) -> Boundary:
-    path = CONFIG_PATH if CONFIG_PATH.exists() else OLD_CONFIG_PATH
-    if not path.exists():
+    if not CONFIG_PATH.exists():
         return Boundary()
-    data = json.loads(path.read_text())
+    data = json.loads(CONFIG_PATH.read_text())
     if video_name not in data:
         return Boundary()
     return Boundary.from_dict(data[video_name])
