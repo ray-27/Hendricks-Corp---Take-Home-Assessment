@@ -9,11 +9,12 @@ are only ever combined afterwards, by joining their output CSVs (e.g. on
 `track_id` / timestamp) or by watching their annotated videos side by side.
 
 ```
+configs/
+  paths.py                   <- single place every pipeline/GUI reads paths + thresholds from
+  store_boundary_zones.json  <- written by boundary_gui.py (store outside/inside/entrance)
+  shelf_faces.json           <- written by shelf_face_gui.py (shelf edge + outward normal + customer zone)
+  staff_marks.json           <- written by staff_gui.py (ReID gallery for staff role)
 pipelines/
-  configs/
-    store_boundary_zones.json <- written by boundary_gui.py (store outside/inside/entrance)
-    shelf_faces.json          <- written by shelf_face_gui.py (shelf edge + outward normal + customer zone)
-    staff_marks.json          <- written by staff_gui.py (ReID gallery for staff role)
   boundary/
     boundary_store.py         <- store boundary dataclass + load/save
     boundary_gui.py           <- GUI for outside/inside/entrance
@@ -87,7 +88,7 @@ on its own, on any clip, once its boundary is drawn.
 Pipeline stages:
 
 ```
-frame -> YOLOv8n-pose (per-person box + 17 keypoints)
+frame -> YOLO-pose (yolo11x-pose.pt by default, per-person box + 17 keypoints)
       -> IoUTracker    (position/box history per track_id, no appearance model)
       -> SNNMotionTracker (per-track LIF neuron pool over the person's crop:
                             DVS-style ON/OFF events -> leaky integrate-and-fire
@@ -128,7 +129,7 @@ to `[0, 1]`:
 | cue        | source                              | brief language it captures                  |
 |------------|-------------------------------------|----------------------------------------------|
 | `orient`   | YOLO-pose torso + head vector vs. entrance | "looking toward the storefront"        |
-| `turn`     | change in orient-angle over ~0.6s   | "turning their head or body toward it"       |
+| `turn`     | change in orient-angle over a short window | "turning their head or body toward it" |
 | `slow`     | SNN motion-energy trend + foot speed| "slowing down"                                |
 | `approach` | closing distance to the entrance    | "approaching the entrance"                    |
 
@@ -139,38 +140,26 @@ alone (stopping isn't even one of the weighted cues; a stopped-but-facing-
 away person scores low, a slowing-and-turning-toward person scores high
 even if they never fully stop).
 
-### All thresholds/parameters, in one place (`scoring.py::InterestParams`)
+### All thresholds/parameters, in one place (`configs/paths.py`, `INTEREST_*`)
 
 There is no single "shoulder tilt" threshold — orientation comes from the
 torso-perpendicular + head-yaw *attention vector* in `src/analytics/pose.py`
 (`PoseDet.facing_vector()` / `attention_vector()`), gated by a keypoint
 confidence cutoff, and is only turned into a cue by comparing its angle to
-the entrance direction against `attend_deg` below. There's one place that
+the entrance direction against `attend_deg`. There's one place that
 looks at raw speed magnitude (`walk_bh`/`slow_bh`), one for the SNN's
 motion-decay signal, and one for closing speed. All distances/speeds are in
 **body-heights/second** (bbox height as the unit), not pixels or m/s, since
 this pipeline has no floor-plane calibration.
 
-| parameter | value | meaning |
-|---|---|---|
-| `KP_CONF` (`pose.py`) | 0.30 | below this a keypoint (shoulder/hip/eye/etc.) is treated as missing, not wrong |
-| `attend_deg` | 55° | attention-vector-to-entrance angle cone that counts as "looking at the shop"; cue saturates at 0° |
-| `turn_deg` | 12° | angle swing *toward* the shop over `turn_window_s` that saturates the "turning toward it" cue |
-| `turn_window_s` | 0.6s | window the turning cue compares "now" against |
-| `walk_bh` | 1.40 bh/s | normal/unremarkable walking pace — at or above this the speed-based half of `slow` is 0 |
-| `slow_bh` | 0.45 bh/s | at/below this the speed-based half of `slow` is fully saturated |
-| `motion_trend_ref` | 0.05 | SNN motion-energy drop that fully saturates the trend-based half of `slow` |
-| `speed_window_s` | 0.5s | window for computing foot-point speed / approach |
-| `approach_ref_bh` | 0.35 bh/s | closing speed toward the entrance that saturates the `approach` cue |
-| `w_orient / w_turn / w_slow / w_approach` | 0.35 / 0.15 / 0.25 / 0.25 | cue weights (sum to 1.0) |
-| `score_threshold` | 0.55 | EMA score must clear this |
-| `sustain_s` | 0.8s | ...and hold above threshold for this long, continuously |
-| `ema` | 0.60 | smoothing factor on the interest score (higher = smoother/slower to react) |
-| `entered_dwell_s` | 0.8s | continuous time inside the shop polygon before a track is marked "entered" |
-| `min_hits` | 5 | tracks with fewer detections than this are treated as flicker, not counted |
-
-Tune these in `InterestParams` (or pass your own instance into
-`interest_pipeline.py`).
+Every numeric default (`attend_deg`, `turn_deg`, `walk_bh`, `slow_bh`,
+`motion_trend_ref`, `approach_ref_bh`, cue weights, `score_threshold`,
+`sustain_s`, `ema`, `entered_dwell_s`, `min_hits`, ...) lives as an
+`INTEREST_*` constant in `configs/paths.py` and is consumed by
+`scoring.py::InterestParams` — see that file for the current values and
+`pipelines/interest/README.md` for a table of them. Change a value there
+(or pass a CLI flag / your own `InterestParams` instance) rather than
+hardcoding a new default in `scoring.py` or `interest_pipeline.py`.
 
 ### Fixes: outside-only tracking, and not re-flagging a leaving customer
 
@@ -247,7 +236,7 @@ anti-double-counting rules, and pose-model recommendations.
 Written to project-root `outputs/` (`interior_annotated.mp4` and `csv/shelf_vector_interest/`):
 - `shelf_vector_summary.csv` — cumulative events per shelf face
 - `shelf_vector_events.csv` — start/end/duration for each shelf-face event
-- `shelf_vector_annotated.mp4` — face edge/normal/zone overlay, live duration, per-shelf totals
+- `interior_annotated.mp4` — face edge/normal/zone overlay, live duration, per-shelf totals
 
 ## 4. Staff-customer interaction pipeline (Task 3, entrance.mp4)
 
@@ -284,12 +273,12 @@ immediately closed, and `--cooldown-s` after a close is what makes
 
 **Why ReID-gallery + rule-based scoring, not a VLM.** A VLM-based version
 of each judgment (asking "is this a staff apron?" / "are these two people
-interacting?" per crop) was tried first and dropped: two rounds of prompt
-engineering on the role question each fixed one failure mode by making the
-other worse -- a stricter "is this an apron" prompt that stopped matching
-customers' bags/jackets also started rejecting real staff whose uniform
-didn't look exactly like the description, and a looser prompt did the
-reverse -- there wasn't a single wording that was precise for *this
+interacting?" per crop) was tried first and dropped entirely: two rounds of
+prompt engineering on the role question each fixed one failure mode by
+making the other worse -- a stricter "is this an apron" prompt that stopped
+matching customers' bags/jackets also started rejecting real staff whose
+uniform didn't look exactly like the description, and a looser prompt did
+the reverse -- there wasn't a single wording that was precise for *this
 specific footage's* uniform without either false-positive or
 false-negative failures. The interaction VLM had a mirror problem: a real
 exchange (e.g. staff bent down talking to a seated customer) sometimes
@@ -305,8 +294,8 @@ question than "does this look like an apron in general" or "is this pixel
 apron-coloured"), and interaction becomes arithmetic on keypoints already
 computed for tracking, tunable via named thresholds (`--near-bh`,
 `--face-deg`, `--score-threshold`, ...) instead of English prompt wording.
-Neither approach is strictly better in every case, which is why both stay
-in the codebase, selectable per run.
+The VLM code path was removed from the codebase after this comparison —
+ReID + rule-based scoring is the only method this pipeline runs now.
 
 Written to project-root `outputs/csv/staff_interaction/` (video at `outputs/staff_interaction_annotated.mp4` when run alone):
 - `staff_interaction_summary.csv` — per staff instance: sessions, first/last
