@@ -2,6 +2,8 @@
 
 Each task is its own pipeline. Annotate once with the GUIs, then run one pipeline or `run_all.py`.
 
+See [`pipelines/README.md`](pipelines/README.md) for the approach behind each pipeline (models used, design/tradeoff reasoning, thresholds, and why VLM was dropped in favor of ReID/rule-based scoring) — and each pipeline's own `README.md` (e.g. [`pipelines/interest/README.md`](pipelines/interest/README.md), [`pipelines/shelf_vector_interest/README.md`](pipelines/shelf_vector_interest/README.md), [`pipelines/staff_interaction/README.md`](pipelines/staff_interaction/README.md)) for full detail on that pipeline specifically.
+
 ```bash
 pip install -r requirements.txt
 ```
